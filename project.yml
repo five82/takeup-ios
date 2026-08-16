@@ -22,6 +22,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: xyz.five82.takeup
+        DEVELOPMENT_TEAM: G539654RSK
+        CODE_SIGN_STYLE: Automatic
         TARGETED_DEVICE_FAMILY: "2"
         SWIFT_VERSION: "5.0"
         CURRENT_PROJECT_VERSION: 1

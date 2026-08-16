@@ -111,6 +111,10 @@ final class MPVPlayerController: UIViewController {
     func loadFile(_ url: URL, startSeconds: Double = 0) {
         var args = [url.absoluteString, "replace"]
         if startSeconds > 0 {
+            // mpv >= 0.38 loadfile signature: url [flags [index [options]]].
+            // The index (-1 = append position, unused for "replace") must be
+            // present or the options string is rejected and nothing loads.
+            args.append("-1")
             args.append("start=\(startSeconds)")
         }
         command("loadfile", args: args)
