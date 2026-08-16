@@ -46,6 +46,12 @@ struct ItemDetailView: View {
                     .padding(.bottom, 32)
                     .frame(width: paneWidth, alignment: .leading)
                 }
+                // The head's backdrop runs seamlessly to the screen's top
+                // edge, matching the Android app; the art's own wash keeps
+                // the status bar and back button legible, so the system's
+                // grey edge haze must stay out of it.
+                .ignoresSafeArea(edges: .top)
+                .scrollEdgeEffectHidden(true, for: .top)
             } else if let loadError {
                 ErrorState(message: loadError) { Task { await load() } }
             } else {

@@ -26,11 +26,21 @@ struct HomeView: View {
                     VStack(alignment: .leading, spacing: 0) {
                         if let hero = featuredPick {
                             heroView(hero, width: proxy.size.width)
+                        } else {
+                            // No hero art to run under the status bar; keep
+                            // the rows out of it.
+                            Color.clear.frame(height: proxy.safeAreaInsets.top)
                         }
                         rows
                     }
                     .padding(.bottom, 32)
                 }
+                // The hero backdrop runs seamlessly to the screen's top edge,
+                // matching the Android app; the art's own wash keeps the
+                // status bar legible, so the system's grey edge haze must
+                // stay out of it.
+                .ignoresSafeArea(edges: .top)
+                .scrollEdgeEffectHidden(true, for: .top)
             }
         }
         .background(Color.stage)
