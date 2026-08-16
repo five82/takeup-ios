@@ -172,6 +172,25 @@ struct RootView: View {
                 detailPath.append(PersonSearch(name: arguments[personIndex + 1]))
             }
         }
+        // `-artwork <itemId>` pushes the item's detail and then its artwork
+        // picker, since headless simulators cannot tap the toolbar menu.
+        if let flagIndex = arguments.firstIndex(of: "-artwork"),
+           arguments.indices.contains(flagIndex + 1),
+           let itemId = Int64(arguments[flagIndex + 1]),
+           let client = appEnvironment.client,
+           let item = try? await client.item(id: itemId) {
+            detailPath.append(item)
+            var pick = ArtworkPick(
+                itemId: item.id, title: item.title,
+                ambienceURL: detailArtURL(for: item, client: client, width: 240)
+            )
+            // `-artworkKind <poster|backdrop|logo|thumb>` opens on that kind.
+            if let kindIndex = arguments.firstIndex(of: "-artworkKind"),
+               arguments.indices.contains(kindIndex + 1) {
+                pick.initialKind = arguments[kindIndex + 1]
+            }
+            detailPath.append(pick)
+        }
         guard let flagIndex = arguments.firstIndex(of: "-autoplay"),
               arguments.indices.contains(flagIndex + 1),
               let itemId = Int64(arguments[flagIndex + 1])

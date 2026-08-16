@@ -163,3 +163,18 @@ struct ScanStatus: Codable {
     let lastEndedAt: String?
     let lastError: String?
 }
+
+struct ImageOption: Codable, Hashable {
+    let provider: String
+    let providerPath: String
+    let language: String?
+    let width: Int
+    let height: Int
+    let aspectRatio: Double?
+    let voteAverage: Double?
+    let voteCount: Int?
+    let thumbnailUrl: String
+    // var: the artwork picker flips this optimistically while Loom applies
+    // the selection.
+    var selected: Bool
+}

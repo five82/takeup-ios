@@ -145,6 +145,30 @@ struct LoomClient {
         )
     }
 
+    func imageOptions(id: Int64, kind: String) async throws -> [ImageOption] {
+        let wrapped: Wrapped<ImageOption> = try await request("items/\(id)/images/\(kind)/options")
+        return wrapped.items
+    }
+
+    /// Loom downloads the full-size original from TMDB before responding, so
+    /// this can take several seconds; give it more room than the default request timeout.
+    func selectImage(id: Int64, kind: String, provider: String, providerPath: String) async throws {
+        struct Body: Encodable {
+            let provider: String
+            let provider_path: String
+        }
+        let _: EmptyResponse = try await request(
+            "items/\(id)/images/\(kind)",
+            method: "PUT",
+            body: try JSONEncoder().encode(Body(provider: provider, provider_path: providerPath)),
+            timeout: 120
+        )
+    }
+
+    func resetImage(id: Int64, kind: String) async throws {
+        let _: EmptyResponse = try await request("items/\(id)/images/\(kind)/reset", method: "POST")
+    }
+
     // MARK: - URLs
 
     func streamURL(for playback: PlaybackInfo) -> URL? {
@@ -170,7 +194,8 @@ struct LoomClient {
         _ path: String,
         method: String = "GET",
         query: [URLQueryItem] = [],
-        body: Data? = nil
+        body: Data? = nil,
+        timeout: TimeInterval? = nil
     ) async throws -> T {
         var components = URLComponents(url: baseURL.appending(path: "api/v1/\(path)"), resolvingAgainstBaseURL: false)
         if !query.isEmpty { components?.queryItems = query }
@@ -178,6 +203,7 @@ struct LoomClient {
 
         var request = URLRequest(url: url)
         request.httpMethod = method
+        if let timeout { request.timeoutInterval = timeout }
         if let body {
             request.httpBody = body
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")

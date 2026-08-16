@@ -48,4 +48,50 @@ struct LoomDecodingTests {
         #expect(item.progress?.resumePositionMs == 440000)
         #expect(item.isPlayable)
     }
+
+    @Test func imageOptionDecodesSnakeCaseFields() throws {
+        let json = Data("""
+        {
+            "provider": "tmdb",
+            "provider_path": "/abc123.jpg",
+            "language": "en",
+            "width": 2000,
+            "height": 3000,
+            "aspect_ratio": 0.6667,
+            "vote_average": 8.1,
+            "vote_count": 42,
+            "thumbnail_url": "https://image.tmdb.org/t/p/w300/abc123.jpg",
+            "selected": true
+        }
+        """.utf8)
+        let option = try loomDecoder().decode(ImageOption.self, from: json)
+        #expect(option.provider == "tmdb")
+        #expect(option.providerPath == "/abc123.jpg")
+        #expect(option.language == "en")
+        #expect(option.width == 2000)
+        #expect(option.height == 3000)
+        #expect(option.aspectRatio == 0.6667)
+        #expect(option.voteAverage == 8.1)
+        #expect(option.voteCount == 42)
+        #expect(option.thumbnailUrl == "https://image.tmdb.org/t/p/w300/abc123.jpg")
+        #expect(option.selected)
+    }
+
+    @Test func imageOptionDecodesMissingOmitemptyFieldsAsNil() throws {
+        let json = Data("""
+        {
+            "provider": "local",
+            "provider_path": "/data/posters/x.jpg",
+            "width": 1000,
+            "height": 1500,
+            "thumbnail_url": "https://image.tmdb.org/t/p/w300/x.jpg",
+            "selected": false
+        }
+        """.utf8)
+        let option = try loomDecoder().decode(ImageOption.self, from: json)
+        #expect(option.language == nil)
+        #expect(option.aspectRatio == nil)
+        #expect(option.voteAverage == nil)
+        #expect(option.voteCount == nil)
+    }
 }

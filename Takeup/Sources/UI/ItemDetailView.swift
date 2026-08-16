@@ -6,6 +6,19 @@ struct PersonSearch: Hashable {
     let name: String
 }
 
+/// Episodes show their own screencap; everything else leads with the
+/// backdrop (the poster only as a last resort). Shared with RootView's
+/// `-artwork` debug push, which has no detail screen to ask.
+func detailArtURL(for item: Item, client: LoomClient, width: Int) -> URL? {
+    if item.kind == "episode",
+       let url = client.imageURL(id: item.thumbImageId, tag: item.thumbImageTag, width: width) {
+        return url
+    }
+    return client.imageURL(id: item.backdropImageId, tag: item.backdropImageTag, width: width)
+        ?? client.imageURL(id: item.thumbImageId, tag: item.thumbImageTag, width: width)
+        ?? client.imageURL(id: item.posterImageId, tag: item.posterImageTag, width: width)
+}
+
 /// Detail for any item kind, dressed in accents woven from its own artwork:
 /// gauze from the detail art, a bias-cut head with the logo lane, and a body
 /// that goes two-pane in wide panes (story left, people/season right).
@@ -28,6 +41,7 @@ struct ItemDetailView: View {
     @State private var dressed = false
     @State private var logoAspect: Double?
     @State private var castExpanded = false
+    @State private var artworkPick: ArtworkPick?
     @Environment(\.paneWidth) private var paneWidth
 
     var body: some View {
@@ -69,6 +83,14 @@ struct ItemDetailView: View {
         .navigationDestination(for: PersonSearch.self) { person in
             SearchView(initialQuery: person.name)
         }
+        .navigationDestination(for: ArtworkPick.self) { pick in
+            ArtworkView(pick: pick)
+        }
+        // The menu entry pushes through this binding: a NavigationLink
+        // inside a Menu does not reliably fire.
+        .navigationDestination(item: $artworkPick) { pick in
+            ArtworkView(pick: pick)
+        }
         .fullScreenCover(item: $playbackItem, onDismiss: { Task { await load() } }) { playable in
             PlayerScreen(item: playable)
         }
@@ -76,6 +98,19 @@ struct ItemDetailView: View {
             if let item {
                 ToolbarItem(placement: .primaryAction) {
                     Menu {
+                        // Artwork above the watched toggle, matching the
+                        // Android app's menu order.
+                        // Episodes inherit their show's artwork; no picker.
+                        if item.kind != "episode" {
+                            Button {
+                                artworkPick = ArtworkPick(
+                                    itemId: item.id, title: item.title,
+                                    ambienceURL: detailArtURL(width: 240)
+                                )
+                            } label: {
+                                Label("Artwork", systemImage: "photo.on.rectangle.angled")
+                            }
+                        }
                         watchedToggle(for: item)
                     } label: {
                         Image(systemName: "ellipsis")
@@ -84,6 +119,13 @@ struct ItemDetailView: View {
             }
         }
         .task(id: itemId) { await load() }
+        // Refresh on the trip back from a pushed screen — the artwork picker
+        // changes image tags, and tags drive every artwork URL. The initial
+        // load stays with .task (item is still nil on first appearance).
+        .onAppear {
+            guard item != nil else { return }
+            Task { await load() }
+        }
     }
 
     // MARK: - Head
@@ -640,17 +682,9 @@ struct ItemDetailView: View {
 
     // MARK: - Data
 
-    /// Episodes show their own screencap; everything else leads with the
-    /// backdrop (the poster only as a last resort).
     private func detailArtURL(width: Int) -> URL? {
         guard let item, let client = appEnvironment.client else { return nil }
-        if item.kind == "episode",
-           let url = client.imageURL(id: item.thumbImageId, tag: item.thumbImageTag, width: width) {
-            return url
-        }
-        return client.imageURL(id: item.backdropImageId, tag: item.backdropImageTag, width: width)
-            ?? client.imageURL(id: item.thumbImageId, tag: item.thumbImageTag, width: width)
-            ?? client.imageURL(id: item.posterImageId, tag: item.posterImageTag, width: width)
+        return Takeup.detailArtURL(for: item, client: client, width: width)
     }
 
     private func load() async {
