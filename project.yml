@@ -48,6 +48,9 @@ targets:
     info:
       path: Takeup/Info.plist
       properties:
+        # The App Library ignores this for dev-signed installs (they get filed
+        # under the signing team's name), but declare the category anyway.
+        LSApplicationCategoryType: public.app-category.entertainment
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
