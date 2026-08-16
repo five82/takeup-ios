@@ -1,9 +1,14 @@
 import SwiftUI
 
-/// Paged poster grid for one Loom library. Loom returns no total count,
-/// so the end of the library is detected by a short page.
-struct LibraryGridView: View {
-    let libraryKind: String
+/// Paged poster grid over /items, filtered by library or genre. Loom returns
+/// no total count, so the end is detected by a short page.
+struct ItemGridView: View {
+    enum Source: Hashable {
+        case library(kind: String)
+        case genre(Genre)
+    }
+
+    let source: Source
     let title: String
 
     @Environment(AppEnvironment.self) private var appEnvironment
@@ -58,7 +63,13 @@ struct LibraryGridView: View {
         loading = true
         loadError = nil
         do {
-            let page = try await client.items(library: libraryKind, limit: Self.pageSize, offset: items.count)
+            let page: ItemsPage
+            switch source {
+            case .library(let kind):
+                page = try await client.items(library: kind, limit: Self.pageSize, offset: items.count)
+            case .genre(let genre):
+                page = try await client.items(genreId: genre.id, limit: Self.pageSize, offset: items.count)
+            }
             items.append(contentsOf: page.items)
             reachedEnd = page.items.count < Self.pageSize
         } catch {
@@ -87,6 +98,22 @@ struct PosterCell: View {
             }
             .aspectRatio(2 / 3, contentMode: .fit)
             .clipShape(RoundedRectangle(cornerRadius: 10))
+            .overlay(alignment: .topTrailing) {
+                if let unwatched = item.unwatchedCount, unwatched > 0 {
+                    Text(String(unwatched))
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(.tint, in: Capsule())
+                        .padding(6)
+                } else if item.progress?.played ?? false {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.title3)
+                        .foregroundStyle(.white, .tint)
+                        .padding(6)
+                }
+            }
 
             Text(item.title)
                 .font(.callout.weight(.medium))

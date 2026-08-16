@@ -31,16 +31,40 @@ struct LoomClient {
         let _: EmptyResponse = try await request("health")
     }
 
-    func libraries() async throws -> [Library] {
-        try await request("libraries")
+    // List endpoints wrap their arrays in {"items": [...]}.
+    private struct Wrapped<Element: Decodable>: Decodable {
+        let items: [Element]
     }
 
-    func items(library: String, limit: Int = 60, offset: Int = 0) async throws -> ItemsPage {
-        try await request("items", query: [
-            URLQueryItem(name: "library", value: library),
+    func libraries() async throws -> [Library] {
+        let wrapped: Wrapped<Library> = try await request("libraries")
+        return wrapped.items
+    }
+
+    func items(library: String? = nil, genreId: Int64? = nil, limit: Int = 60, offset: Int = 0) async throws -> ItemsPage {
+        var query = [
             URLQueryItem(name: "limit", value: String(limit)),
             URLQueryItem(name: "offset", value: String(offset)),
-        ])
+        ]
+        if let library { query.append(URLQueryItem(name: "library", value: library)) }
+        if let genreId { query.append(URLQueryItem(name: "genre_id", value: String(genreId))) }
+        return try await request("items", query: query)
+    }
+
+    func genres() async throws -> [Genre] {
+        let wrapped: Wrapped<Genre> = try await request("genres")
+        return wrapped.items
+    }
+
+    func collections() async throws -> [MediaCollection] {
+        let wrapped: Wrapped<MediaCollection> = try await request("collections")
+        return wrapped.items
+    }
+
+    /// Marks an item (cascading over shows/seasons) played or unplayed.
+    func setPlayed(id: Int64, _ played: Bool) async throws {
+        struct Updated: Decodable { let updated: Int? }
+        let _: Updated = try await request("items/\(id)/played", method: played ? "POST" : "DELETE")
     }
 
     func item(id: Int64) async throws -> Item {

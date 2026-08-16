@@ -1,7 +1,7 @@
 import SwiftUI
 
 enum SidebarSection: String, CaseIterable, Identifiable {
-    case home, movies, shorts, tv, search, settings
+    case home, movies, shorts, tv, browse, search, settings
 
     var id: String { rawValue }
 
@@ -11,6 +11,7 @@ enum SidebarSection: String, CaseIterable, Identifiable {
         case .movies: "Movies"
         case .shorts: "Short Films"
         case .tv: "TV"
+        case .browse: "Browse"
         case .search: "Search"
         case .settings: "Settings"
         }
@@ -22,6 +23,7 @@ enum SidebarSection: String, CaseIterable, Identifiable {
         case .movies: "film"
         case .shorts: "film.stack"
         case .tv: "tv"
+        case .browse: "square.grid.2x2"
         case .search: "magnifyingglass"
         case .settings: "gearshape"
         }
@@ -33,7 +35,7 @@ enum SidebarSection: String, CaseIterable, Identifiable {
         case .movies: "movies"
         case .shorts: "shorts"
         case .tv: "tv"
-        case .home, .search, .settings: nil
+        case .home, .browse, .search, .settings: nil
         }
     }
 }
@@ -55,13 +57,15 @@ struct RootView: View {
                 switch selection ?? .home {
                 case .home:
                     HomeView()
+                case .browse:
+                    BrowseView()
                 case .search:
                     SearchView()
                 case .settings:
                     SettingsView()
                 case let section:
                     if let kind = section.libraryKind {
-                        LibraryGridView(libraryKind: kind, title: section.title)
+                        ItemGridView(source: .library(kind: kind), title: section.title)
                             .id(kind)
                     }
                 }
@@ -73,10 +77,15 @@ struct RootView: View {
         .task { await handleAutoplayArgument() }
     }
 
-    /// Debug hook: `-autoplay <itemId>` launch argument jumps straight into
-    /// playback, so CLI-driven simulator runs can exercise the player.
+    /// Debug hooks for CLI-driven simulator runs: `-autoplay <itemId>` jumps
+    /// straight into playback, `-tab <section>` selects a sidebar section.
     private func handleAutoplayArgument() async {
         let arguments = ProcessInfo.processInfo.arguments
+        if let flagIndex = arguments.firstIndex(of: "-tab"),
+           arguments.indices.contains(flagIndex + 1),
+           let section = SidebarSection(rawValue: arguments[flagIndex + 1]) {
+            selection = section
+        }
         guard let flagIndex = arguments.firstIndex(of: "-autoplay"),
               arguments.indices.contains(flagIndex + 1),
               let itemId = Int64(arguments[flagIndex + 1]),

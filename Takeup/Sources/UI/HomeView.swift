@@ -37,7 +37,9 @@ struct HomeView: View {
             PlayerScreen(item: playable)
         }
         .overlay {
-            if !loaded {
+            if appEnvironment.client == nil {
+                ContentUnavailableView("No Loom Server", systemImage: "server.rack", description: Text("Enter your Loom server address in Settings."))
+            } else if !loaded {
                 ProgressView()
             } else if continueWatching.isEmpty && nextUp.isEmpty && recentlyAdded.isEmpty && recentlyPlayed.isEmpty {
                 ContentUnavailableView("Nothing Here Yet", systemImage: "popcorn", description: Text("Play something and it will show up here."))
@@ -48,7 +50,10 @@ struct HomeView: View {
     }
 
     private func load() async {
-        guard let client = appEnvironment.client else { return }
+        guard let client = appEnvironment.client else {
+            loaded = true
+            return
+        }
         async let continueWatchingPage = client.continueWatching()
         async let nextUpPage = client.nextUp()
         async let recentlyAddedPage = client.recentlyAdded()

@@ -13,7 +13,8 @@ final class AppEnvironment {
     }
 
     init() {
-        serverURLString = UserDefaults.standard.string(forKey: Self.serverKey) ?? "http://10.100.90.20:8097"
+        // No default: the server address lives in Settings, never in the repo.
+        serverURLString = UserDefaults.standard.string(forKey: Self.serverKey) ?? ""
     }
 
     var serverURL: URL? {

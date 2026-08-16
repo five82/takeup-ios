@@ -43,10 +43,36 @@ struct ItemDetailView: View {
         .navigationDestination(for: Item.self) { child in
             ItemDetailView(itemId: child.id, fallbackTitle: child.title)
         }
-        .fullScreenCover(item: $playbackItem) { playable in
+        .fullScreenCover(item: $playbackItem, onDismiss: { Task { await load() } }) { playable in
             PlayerScreen(item: playable)
         }
+        .toolbar {
+            if let item {
+                ToolbarItem(placement: .primaryAction) {
+                    watchedToggle(for: item)
+                }
+            }
+        }
         .task(id: itemId) { await load() }
+    }
+
+    private func watchedToggle(for item: Item) -> some View {
+        let played = item.progress?.played ?? false
+        // For shows/seasons "watched" means no unwatched episodes remain.
+        let allWatched = item.isPlayable ? played : (item.unwatchedCount ?? 0) == 0 && (item.episodeCount ?? 0) > 0
+        let watched = item.isPlayable ? played : allWatched
+        return Button {
+            Task {
+                guard let client = appEnvironment.client else { return }
+                try? await client.setPlayed(id: item.id, !watched)
+                await load()
+            }
+        } label: {
+            Label(
+                watched ? "Mark as Unwatched" : "Mark as Watched",
+                systemImage: watched ? "checkmark.circle.fill" : "checkmark.circle"
+            )
+        }
     }
 
     private func load() async {
