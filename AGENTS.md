@@ -61,7 +61,15 @@ xcodebuild -project Takeup.xcodeproj -scheme Takeup \
   -derivedDataPath DerivedData27 build
 ```
 
-There is no test suite yet; a clean build plus a simulator smoke check is the current bar. Never commit `DerivedData*` output (gitignored, and it has already escaped once).
+Unit tests (Swift Testing, `TakeupTests/`) cover the pure logic: next-episode selection, server-address normalization, Loom JSON decoding, and player track filtering. Run them with the same destination:
+
+```bash
+xcodebuild -project Takeup.xcodeproj -scheme Takeup \
+  -destination 'platform=iOS Simulator,name=iPad27' \
+  -derivedDataPath DerivedData27 test
+```
+
+Add focused tests alongside new pure logic; UI and playback behavior are still verified by simulator smoke checks. Never commit `DerivedData*` output (gitignored, and it has already escaped once).
 
 ## Simulator
 

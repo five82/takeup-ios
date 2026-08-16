@@ -20,6 +20,10 @@ schemes:
       config: Debug
       # MoltenVK HDR passthrough trips Metal API validation (MoltenVK#2226).
       metalAPIValidation: false
+    test:
+      config: Debug
+      targets:
+        - TakeupTests
 
 targets:
   Takeup:
@@ -55,3 +59,17 @@ targets:
         NSLocalNetworkUsageDescription: Takeup connects to your Loom media server on the local network.
         NSBonjourServices:
           - _loom._tcp
+  TakeupTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - TakeupTests
+    dependencies:
+      - target: Takeup
+    settings:
+      base:
+        DEVELOPMENT_TEAM: G539654RSK
+        CODE_SIGN_STYLE: Automatic
+        TARGETED_DEVICE_FAMILY: "2"
+        SWIFT_VERSION: "5.0"
+        GENERATE_INFOPLIST_FILE: true
