@@ -62,6 +62,22 @@ struct LoomClient {
         try await request("continue-watching", query: [URLQueryItem(name: "limit", value: String(limit))])
     }
 
+    func nextUp(limit: Int = 20) async throws -> ItemsPage {
+        try await request("next-up", query: [URLQueryItem(name: "limit", value: String(limit))])
+    }
+
+    func recentlyAdded(limit: Int = 20) async throws -> ItemsPage {
+        try await request("recently-added", query: [URLQueryItem(name: "limit", value: String(limit))])
+    }
+
+    func recentlyPlayed(limit: Int = 20) async throws -> ItemsPage {
+        try await request("recently-played", query: [URLQueryItem(name: "limit", value: String(limit))])
+    }
+
+    func featuredPick() async throws -> FeaturedPick {
+        try await request("featured-pick")
+    }
+
     func search(query: String, limit: Int = 50) async throws -> SearchResponse {
         try await request("search", query: [
             URLQueryItem(name: "q", value: query),

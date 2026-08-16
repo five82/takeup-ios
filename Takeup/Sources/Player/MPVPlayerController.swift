@@ -1,6 +1,33 @@
 import UIKit
 import Libmpv
 
+/// One entry of mpv's `track-list` property.
+struct MPVTrack: Decodable, Hashable {
+    let id: Int
+    let type: String
+    let lang: String?
+    let title: String?
+    let codec: String?
+    let isDefault: Bool?
+    let selected: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case id, type, lang, title, codec, selected
+        case isDefault = "default"
+    }
+
+    /// Stable identity across audio/sub tracks that share numeric ids.
+    var uid: String { "\(type)-\(id)" }
+
+    var displayName: String {
+        var parts: [String] = []
+        if let title, !title.isEmpty { parts.append(title) }
+        if let lang, !lang.isEmpty { parts.append(lang.uppercased()) }
+        if parts.isEmpty, let codec { parts.append(codec) }
+        return parts.isEmpty ? "Track \(id)" : parts.joined(separator: " · ")
+    }
+}
+
 /// Hosts a libmpv instance rendering into a CAMetalLayer.
 /// Adapted from the MPVKit iOS demo (Metal path).
 final class MPVPlayerController: UIViewController {
@@ -15,6 +42,8 @@ final class MPVPlayerController: UIViewController {
     var startSeconds: Double = 0
     /// Called on the main thread whenever an observed property changes.
     var onStateChange: ((ObservedState) -> Void)?
+    /// Called on the main thread once the file loads, with the full track list.
+    var onTracksChange: (([MPVTrack]) -> Void)?
 
     private var metalLayer = MetalLayer()
     private var mpv: OpaquePointer!
@@ -95,11 +124,37 @@ final class MPVPlayerController: UIViewController {
         command("seek", args: [String(seconds), "absolute"])
     }
 
+    func seek(by seconds: Double) {
+        command("seek", args: [String(seconds), "relative"])
+    }
+
+    func stepChapter(_ delta: Int) {
+        command("add", args: ["chapter", String(delta)])
+    }
+
+    func setAudioTrack(_ id: Int) {
+        guard mpv != nil else { return }
+        mpv_set_property_string(mpv, "aid", String(id))
+    }
+
+    /// Pass nil to turn subtitles off.
+    func setSubtitleTrack(_ id: Int?) {
+        guard mpv != nil else { return }
+        mpv_set_property_string(mpv, "sid", id.map(String.init) ?? "no")
+    }
+
     func shutdown() {
         command("quit")
     }
 
     // MARK: - Property helpers
+
+    private func getString(_ name: String) -> String? {
+        guard mpv != nil else { return nil }
+        guard let cString = mpv_get_property_string(mpv, name) else { return nil }
+        defer { mpv_free(cString) }
+        return String(cString: cString)
+    }
 
     private func getFlag(_ name: String) -> Bool {
         guard mpv != nil else { return false }
@@ -139,6 +194,8 @@ final class MPVPlayerController: UIViewController {
                 switch event.pointee.event_id {
                 case MPV_EVENT_PROPERTY_CHANGE:
                     self.handlePropertyChange(event)
+                case MPV_EVENT_FILE_LOADED:
+                    self.publishTracks()
                 case MPV_EVENT_SHUTDOWN:
                     mpv_terminate_destroy(self.mpv)
                     self.mpv = nil
@@ -150,6 +207,16 @@ final class MPVPlayerController: UIViewController {
                     break
                 }
             }
+        }
+    }
+
+    private func publishTracks() {
+        guard let json = getString("track-list"),
+              let data = json.data(using: .utf8),
+              let tracks = try? JSONDecoder().decode([MPVTrack].self, from: data)
+        else { return }
+        DispatchQueue.main.async { [weak self] in
+            self?.onTracksChange?(tracks)
         }
     }
 

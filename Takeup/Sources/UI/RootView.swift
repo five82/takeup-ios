@@ -1,24 +1,28 @@
 import SwiftUI
 
 enum SidebarSection: String, CaseIterable, Identifiable {
-    case movies, shorts, tv, settings
+    case home, movies, shorts, tv, search, settings
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
+        case .home: "Home"
         case .movies: "Movies"
         case .shorts: "Short Films"
         case .tv: "TV"
+        case .search: "Search"
         case .settings: "Settings"
         }
     }
 
     var icon: String {
         switch self {
+        case .home: "house"
         case .movies: "film"
         case .shorts: "film.stack"
         case .tv: "tv"
+        case .search: "magnifyingglass"
         case .settings: "gearshape"
         }
     }
@@ -29,14 +33,14 @@ enum SidebarSection: String, CaseIterable, Identifiable {
         case .movies: "movies"
         case .shorts: "shorts"
         case .tv: "tv"
-        case .settings: nil
+        case .home, .search, .settings: nil
         }
     }
 }
 
 struct RootView: View {
     @Environment(AppEnvironment.self) private var appEnvironment
-    @State private var selection: SidebarSection? = .movies
+    @State private var selection: SidebarSection? = .home
     @State private var autoplayItem: Item?
 
     var body: some View {
@@ -48,7 +52,11 @@ struct RootView: View {
             .navigationTitle("Takeup")
         } detail: {
             NavigationStack {
-                switch selection ?? .movies {
+                switch selection ?? .home {
+                case .home:
+                    HomeView()
+                case .search:
+                    SearchView()
                 case .settings:
                     SettingsView()
                 case let section:

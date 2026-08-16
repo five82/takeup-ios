@@ -12,6 +12,9 @@ private struct MPVPlayerView: UIViewControllerRepresentable {
         controller.onStateChange = { [weak model] state in
             model?.apply(state)
         }
+        controller.onTracksChange = { [weak model] tracks in
+            model?.applyTracks(tracks)
+        }
         model.controller = controller
         return controller
     }
@@ -30,6 +33,10 @@ final class PlayerModel {
     var durationSeconds: Double = 0
     var paused = false
     var buffering = true
+    var audioTracks: [MPVTrack] = []
+    var subtitleTracks: [MPVTrack] = []
+    var selectedAudioId: Int?
+    var selectedSubtitleId: Int?
 
     weak var controller: MPVPlayerController?
 
@@ -38,6 +45,23 @@ final class PlayerModel {
         durationSeconds = state.durationSeconds
         paused = state.paused
         buffering = state.buffering
+    }
+
+    func applyTracks(_ tracks: [MPVTrack]) {
+        audioTracks = tracks.filter { $0.type == "audio" }
+        subtitleTracks = tracks.filter { $0.type == "sub" }
+        selectedAudioId = audioTracks.first { $0.selected == true }?.id
+        selectedSubtitleId = subtitleTracks.first { $0.selected == true }?.id
+    }
+
+    func selectAudio(_ id: Int) {
+        controller?.setAudioTrack(id)
+        selectedAudioId = id
+    }
+
+    func selectSubtitle(_ id: Int?) {
+        controller?.setSubtitleTrack(id)
+        selectedSubtitleId = id
     }
 }
 
@@ -52,6 +76,7 @@ struct PlayerScreen: View {
 
     @State private var model = PlayerModel()
     @State private var playbackURL: URL?
+    @State private var chapters: [Chapter] = []
     @State private var loadError: String?
     @State private var controlsVisible = true
     @State private var scrubbing = false
@@ -113,6 +138,9 @@ struct PlayerScreen: View {
                 if model.buffering {
                     ProgressView().tint(.white)
                 }
+                if !model.audioTracks.isEmpty || !model.subtitleTracks.isEmpty {
+                    trackMenu
+                }
             }
             Spacer()
             VStack(spacing: 8) {
@@ -134,11 +162,37 @@ struct PlayerScreen: View {
                 HStack {
                     Text(formatTime(model.timeSeconds))
                     Spacer()
-                    Button {
-                        model.controller?.togglePause()
-                    } label: {
-                        Image(systemName: model.paused ? "play.fill" : "pause.fill")
-                            .font(.system(size: 40))
+                    HStack(spacing: 36) {
+                        if hasChapters {
+                            Button {
+                                model.controller?.stepChapter(-1)
+                            } label: {
+                                Image(systemName: "backward.end.alt.fill").font(.title2)
+                            }
+                        }
+                        Button {
+                            model.controller?.seek(by: -10)
+                        } label: {
+                            Image(systemName: "gobackward.10").font(.title2)
+                        }
+                        Button {
+                            model.controller?.togglePause()
+                        } label: {
+                            Image(systemName: model.paused ? "play.fill" : "pause.fill")
+                                .font(.system(size: 40))
+                        }
+                        Button {
+                            model.controller?.seek(by: 10)
+                        } label: {
+                            Image(systemName: "goforward.10").font(.title2)
+                        }
+                        if hasChapters {
+                            Button {
+                                model.controller?.stepChapter(1)
+                            } label: {
+                                Image(systemName: "forward.end.alt.fill").font(.title2)
+                            }
+                        }
                     }
                     Spacer()
                     Text(formatTime(model.durationSeconds))
@@ -152,10 +206,64 @@ struct PlayerScreen: View {
         .foregroundStyle(.white)
     }
 
+    private var hasChapters: Bool {
+        !chapters.isEmpty
+    }
+
+    private var trackMenu: some View {
+        Menu {
+            if !model.audioTracks.isEmpty {
+                Section("Audio") {
+                    ForEach(model.audioTracks, id: \.uid) { track in
+                        Button {
+                            model.selectAudio(track.id)
+                        } label: {
+                            if model.selectedAudioId == track.id {
+                                Label(track.displayName, systemImage: "checkmark")
+                            } else {
+                                Text(track.displayName)
+                            }
+                        }
+                    }
+                }
+            }
+            if !model.subtitleTracks.isEmpty {
+                Section("Subtitles") {
+                    Button {
+                        model.selectSubtitle(nil)
+                    } label: {
+                        if model.selectedSubtitleId == nil {
+                            Label("Off", systemImage: "checkmark")
+                        } else {
+                            Text("Off")
+                        }
+                    }
+                    ForEach(model.subtitleTracks, id: \.uid) { track in
+                        Button {
+                            model.selectSubtitle(track.id)
+                        } label: {
+                            if model.selectedSubtitleId == track.id {
+                                Label(track.displayName, systemImage: "checkmark")
+                            } else {
+                                Text(track.displayName)
+                            }
+                        }
+                    }
+                }
+            }
+        } label: {
+            Image(systemName: "captions.bubble")
+                .font(.title2)
+                .padding(12)
+                .background(.black.opacity(0.5), in: Circle())
+        }
+    }
+
     private func start() async {
         guard let client = appEnvironment.client else { return }
         do {
             let playback = try await client.playback(id: item.id)
+            chapters = playback.media.chapters ?? []
             playbackURL = client.streamURL(for: playback)
         } catch {
             loadError = error.localizedDescription
