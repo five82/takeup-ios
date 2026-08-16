@@ -1,0 +1,31 @@
+import Foundation
+import Observation
+
+/// App-wide state: the configured Loom server and the API client built from it.
+/// Mirrors Takeup Android's ServerConfig-in-DataStore, using UserDefaults.
+@Observable
+@MainActor
+final class AppEnvironment {
+    private static let serverKey = "loom.server.url"
+
+    var serverURLString: String {
+        didSet { UserDefaults.standard.set(serverURLString, forKey: Self.serverKey) }
+    }
+
+    init() {
+        serverURLString = UserDefaults.standard.string(forKey: Self.serverKey) ?? "http://10.100.90.20:8097"
+    }
+
+    var serverURL: URL? {
+        var raw = serverURLString.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !raw.isEmpty else { return nil }
+        if !raw.contains("://") { raw = "http://" + raw }
+        guard var components = URLComponents(string: raw) else { return nil }
+        if components.port == nil { components.port = 8097 }
+        return components.url
+    }
+
+    var client: LoomClient? {
+        serverURL.map { LoomClient(baseURL: $0) }
+    }
+}
