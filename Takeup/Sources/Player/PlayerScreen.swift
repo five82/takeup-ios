@@ -15,6 +15,9 @@ private struct MPVPlayerView: UIViewControllerRepresentable {
         controller.onTracksChange = { [weak model] tracks in
             model?.applyTracks(tracks)
         }
+        controller.onSubtitleTextChange = { [weak model] text in
+            model?.applySubtitleText(text)
+        }
         model.controller = controller
         return controller
     }
@@ -38,6 +41,10 @@ final class PlayerModel {
     var subtitleTracks: [MPVTrack] = []
     var selectedAudioId: Int?
     var selectedSubtitleId: Int?
+    /// The cues on screen right now, drawn by SubtitleOverlay.
+    var subtitleCues: [SubtitleCue] = []
+    /// Display aspect of the picture, nil until the file loads.
+    var videoAspect: Double?
 
     weak var controller: MPVPlayerController?
 
@@ -47,6 +54,7 @@ final class PlayerModel {
         paused = state.paused
         buffering = state.buffering
         ended = state.ended
+        videoAspect = state.videoAspect
     }
 
     func applyTracks(_ tracks: [MPVTrack]) {
@@ -68,9 +76,16 @@ final class PlayerModel {
         selectedAudioId = id
     }
 
+    func applySubtitleText(_ text: String?) {
+        subtitleCues = SubtitleCue.parse(text)
+    }
+
     func selectSubtitle(_ id: Int?) {
         controller?.setSubtitleTrack(id)
         selectedSubtitleId = id
+        // The last cue of the old track would otherwise hang there until the
+        // new one (or none at all) has something to say.
+        subtitleCues = []
     }
 
     func replay() {
@@ -171,6 +186,17 @@ private struct PlayerSessionView: View {
                     }
                 }
 
+            // Crop-to-fill panscans the picture out to the surface edges, so
+            // there is no letterbox to sit inside: the overlay's unknown-aspect
+            // fallback (the whole surface) is exactly right there.
+            SubtitleOverlay(
+                cues: model.subtitleCues,
+                aspect: cropped ? nil : model.videoAspect,
+                lift: subtitleLift
+            )
+                .ignoresSafeArea()
+                .animation(.easeInOut(duration: 0.2), value: subtitleLift)
+
             if controlsVisible && !model.ended {
                 chrome
                     .transition(.opacity)
@@ -235,6 +261,15 @@ private struct PlayerSessionView: View {
     }
 
     // MARK: - Chrome
+
+    /// How far above the surface's bottom edge a bottom cue must sit to clear
+    /// the console while it is up: the scrub row, the transport row, the
+    /// console's own padding and the chrome's margin come to about 188, plus a
+    /// little air. The overlay only applies this when the picture does not
+    /// already put the cue higher. Cues anchored at the top stay put.
+    private var subtitleLift: CGFloat {
+        controlsVisible && !model.ended ? 200 : 0
+    }
 
     private var chrome: some View {
         VStack {

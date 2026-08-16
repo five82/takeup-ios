@@ -38,6 +38,10 @@ final class MPVPlayerController: UIViewController {
         var buffering: Bool = true
         /// True once playback hits the end (keep-open holds the last frame).
         var ended: Bool = false
+        /// Display aspect ratio of the picture (anamorphic already corrected),
+        /// or nil until the file loads. SubtitleOverlay sizes cues against the
+        /// letterboxed picture rather than the whole surface.
+        var videoAspect: Double?
     }
 
     var playURL: URL?
@@ -46,6 +50,9 @@ final class MPVPlayerController: UIViewController {
     var onStateChange: ((ObservedState) -> Void)?
     /// Called on the main thread once the file loads, with the full track list.
     var onTracksChange: (([MPVTrack]) -> Void)?
+    /// Called on the main thread with the current cue as ASS event text (nil
+    /// between cues). SubtitleOverlay draws it; see SubtitleCue.
+    var onSubtitleTextChange: ((String?) -> Void)?
 
     private var metalLayer = MetalLayer()
     private var mpv: OpaquePointer!
@@ -117,6 +124,10 @@ final class MPVPlayerController: UIViewController {
         // subs matching the audio language still auto-select.
         checkError(mpv_set_option_string(mpv, "subs-match-os-language", "no"))
         checkError(mpv_set_option_string(mpv, "subs-fallback", "default"))
+        // Tracks are still selected and decoded (sub-text keeps updating
+        // whatever visibility says) -- libass just never draws them, because
+        // SubtitleOverlay does. See SubtitleCue.
+        checkError(mpv_set_option_string(mpv, "sub-visibility", "no"))
 
         checkError(mpv_initialize(mpv))
 
@@ -125,6 +136,10 @@ final class MPVPlayerController: UIViewController {
         mpv_observe_property(mpv, 0, "pause", MPV_FORMAT_FLAG)
         mpv_observe_property(mpv, 0, "paused-for-cache", MPV_FORMAT_FLAG)
         mpv_observe_property(mpv, 0, "eof-reached", MPV_FORMAT_FLAG)
+        // The ASS form carries the {\an}, {\i}, {\b} and {\u} tags SRT can
+        // express; plain "sub-text" would strip them.
+        mpv_observe_property(mpv, 0, "sub-text/ass", MPV_FORMAT_STRING)
+        mpv_observe_property(mpv, 0, "video-params/aspect", MPV_FORMAT_DOUBLE)
 
         mpv_set_wakeup_callback(mpv, { ctx in
             let controller = unsafeBitCast(ctx, to: MPVPlayerController.self)
@@ -282,6 +297,18 @@ final class MPVPlayerController: UIViewController {
         let name = String(cString: property.name)
 
         switch name {
+        case "sub-text/ass":
+            // Cue text rides its own callback; it is not part of ObservedState.
+            var text: String?
+            if property.format == MPV_FORMAT_STRING,
+               let value = UnsafePointer<UnsafePointer<CChar>?>(OpaquePointer(property.data))?.pointee {
+                text = String(cString: value)
+            }
+            let cue = (text?.isEmpty ?? true) ? nil : text
+            DispatchQueue.main.async { [weak self] in
+                self?.onSubtitleTextChange?(cue)
+            }
+            return
         case "time-pos":
             if let value = UnsafePointer<Double>(OpaquePointer(property.data))?.pointee {
                 state.timeSeconds = value
@@ -301,6 +328,15 @@ final class MPVPlayerController: UIViewController {
         case "eof-reached":
             if let value = UnsafePointer<Bool>(OpaquePointer(property.data))?.pointee {
                 state.ended = value
+            }
+        case "video-params/aspect":
+            let value = UnsafePointer<Double>(OpaquePointer(property.data))?.pointee
+            // Before the file loads the property is unavailable (no data) or
+            // reported as 0/NaN; either way the picture's shape is unknown.
+            if let value, value.isFinite, value > 0 {
+                state.videoAspect = value
+            } else {
+                state.videoAspect = nil
             }
         default:
             return
