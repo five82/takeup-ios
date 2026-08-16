@@ -124,6 +124,7 @@ private struct PlayerSessionView: View {
     @State private var scrubbing = false
     @State private var scrubTarget: Double = 0
     @State private var cropped = false
+    @State private var chaptersPresented = false
     @State private var accent = WovenAccent.neutral
     @State private var threads: [RGB] = []
     /// Any interaction bumps this; the auto-hide countdown restarts.
@@ -186,8 +187,14 @@ private struct PlayerSessionView: View {
         // countdown.
         .task(id: interactionTick) {
             try? await Task.sleep(for: .milliseconds(3500))
-            guard !Task.isCancelled, !model.paused, !scrubbing, !model.ended else { return }
+            guard !Task.isCancelled, !model.paused, !scrubbing, !model.ended,
+                  !chaptersPresented else { return }
             withAnimation(.easeInOut(duration: 0.2)) { controlsVisible = false }
+        }
+        // Closing the chapter popover restarts the auto-hide countdown, which
+        // may have fired (and been ignored) while the popover was up.
+        .onChange(of: chaptersPresented) { _, presented in
+            if !presented { interactionTick += 1 }
         }
         // CLI-driven check for the session swap (see AGENTS.md): chain into
         // the next episode as soon as the end overlay would offer it.
@@ -198,6 +205,12 @@ private struct PlayerSessionView: View {
         }
         .task {
             await start()
+            // CLI-driven check (see AGENTS.md): open the chapter popover so a
+            // screenshot can verify it without a tap.
+            if ProcessInfo.processInfo.arguments.contains("-chapters"), !chapters.isEmpty {
+                try? await Task.sleep(for: .seconds(2))
+                chaptersPresented = true
+            }
             await loadNextEpisode()
             await loadThreads()
         }
@@ -300,7 +313,7 @@ private struct PlayerSessionView: View {
             HStack(spacing: 0) {
                 HStack {
                     if !chapters.isEmpty {
-                        chaptersMenu
+                        chaptersButton
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -366,31 +379,38 @@ private struct PlayerSessionView: View {
             .background(Color.ink.opacity(0.08), in: Capsule())
     }
 
-    private var currentChapterName: String? {
+    private var currentChapter: Chapter? {
         let positionMs = Int64((scrubbing ? scrubTarget : model.timeSeconds) * 1000)
-        return chapters.last { ($0.startMs ?? 0) <= positionMs }?.title
+        return chapters.last { ($0.startMs ?? 0) <= positionMs }
     }
 
-    private var chaptersMenu: some View {
-        Menu {
-            ForEach(chapters, id: \.index) { chapter in
-                Button {
-                    model.controller?.seek(to: Double(chapter.startMs ?? 0) / 1000)
-                    interactionTick += 1
-                } label: {
-                    let name = chapter.title ?? "Chapter \(chapter.index + 1)"
-                    if chapter.title == currentChapterName {
-                        Label(name, systemImage: "checkmark")
-                    } else {
-                        Text(name)
-                    }
-                }
-            }
+    private var currentChapterName: String? {
+        currentChapter?.title
+    }
+
+    // A system Menu clips long chapter lists at the screen edge with no way
+    // to scroll, so the pill opens a scrollable popover instead.
+    private var chaptersButton: some View {
+        Button {
+            chaptersPresented = true
+            interactionTick += 1
         } label: {
             consolePillLabel("Chapters")
         }
         .buttonStyle(.plain)
         .hoverEffect(.lift)
+        .popover(isPresented: $chaptersPresented) {
+            ChapterList(
+                chapters: chapters,
+                currentIndex: currentChapter?.index,
+                accent: accent.tint
+            ) { chapter in
+                model.controller?.seek(to: Double(chapter.startMs ?? 0) / 1000)
+                chaptersPresented = false
+            }
+            .presentationCompactAdaptation(.popover)
+            .presentationBackground(consoleFill)
+        }
     }
 
     private var audioMenu: some View {
@@ -622,6 +642,59 @@ private struct PlayerSessionView: View {
         } catch {
             // Server unreachable: keep the latest position for a later flush.
             downloads.queueProgress(itemId: item.id, positionMs: positionMs, durationMs: durationMs)
+        }
+    }
+}
+
+/// The chapter picker behind the Chapters pill: a scrollable list with start
+/// times, opened scrolled to the playing chapter.
+private struct ChapterList: View {
+    var chapters: [Chapter]
+    var currentIndex: Int?
+    var accent: Color
+    var onSelect: (Chapter) -> Void
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(spacing: 2) {
+                    ForEach(chapters, id: \.index) { chapter in
+                        let current = chapter.index == currentIndex
+                        Button {
+                            onSelect(chapter)
+                        } label: {
+                            HStack(spacing: 14) {
+                                Text(chapter.title ?? "Chapter \(chapter.index + 1)")
+                                    .font(.labelLarge)
+                                    .foregroundStyle(current ? accent : Color.ink)
+                                    .multilineTextAlignment(.leading)
+                                Spacer(minLength: 14)
+                                Text(formatClock(Double(chapter.startMs ?? 0) / 1000))
+                                    .font(.labelMedium.monospacedDigit())
+                                    .foregroundStyle(current ? accent.opacity(0.8) : Color.muted)
+                            }
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                            .background(
+                                current ? accent.opacity(0.14) : .clear,
+                                in: RoundedRectangle(cornerRadius: 10)
+                            )
+                            .contentShape(RoundedRectangle(cornerRadius: 10))
+                        }
+                        .buttonStyle(.plain)
+                        .hoverEffect(.highlight)
+                        .id(chapter.index)
+                    }
+                }
+                .padding(10)
+            }
+            .frame(width: 360)
+            .frame(maxHeight: 440)
+            .onAppear {
+                if let currentIndex {
+                    proxy.scrollTo(currentIndex, anchor: .center)
+                }
+            }
         }
     }
 }
