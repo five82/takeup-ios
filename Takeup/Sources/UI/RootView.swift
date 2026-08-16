@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 enum SidebarSection: String, CaseIterable, Identifiable {
     case home, movies, shorts, tv, browse, search, downloads, settings
@@ -103,6 +104,11 @@ struct RootView: View {
            arguments.indices.contains(flagIndex + 1),
            let section = SidebarSection(rawValue: arguments[flagIndex + 1]) {
             selection = section
+        }
+        if arguments.contains("-landscape") {
+            try? await Task.sleep(for: .seconds(1))
+            let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene
+            scene?.requestGeometryUpdate(.iOS(interfaceOrientations: .landscapeRight))
         }
         if let flagIndex = arguments.firstIndex(of: "-download"),
            arguments.indices.contains(flagIndex + 1),

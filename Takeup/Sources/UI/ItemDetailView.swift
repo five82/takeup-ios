@@ -100,6 +100,8 @@ struct ItemDetailView: View {
             Rectangle().fill(.quaternary)
         }
         .aspectRatio(16 / 9, contentMode: .fit)
+        // Height cap keeps the header from swallowing a landscape pane.
+        .frame(maxWidth: .infinity, maxHeight: 420)
         .clipShape(RoundedRectangle(cornerRadius: 14))
     }
 
