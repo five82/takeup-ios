@@ -125,6 +125,8 @@ private struct PlayerSessionView: View {
     @State private var scrubTarget: Double = 0
     @State private var cropped = false
     @State private var chaptersPresented = false
+    @State private var audioPresented = false
+    @State private var subtitlesPresented = false
     @State private var accent = WovenAccent.neutral
     @State private var threads: [RGB] = []
     /// Any interaction bumps this; the auto-hide countdown restarts.
@@ -188,12 +190,18 @@ private struct PlayerSessionView: View {
         .task(id: interactionTick) {
             try? await Task.sleep(for: .milliseconds(3500))
             guard !Task.isCancelled, !model.paused, !scrubbing, !model.ended,
-                  !chaptersPresented else { return }
+                  !chaptersPresented, !audioPresented, !subtitlesPresented else { return }
             withAnimation(.easeInOut(duration: 0.2)) { controlsVisible = false }
         }
-        // Closing the chapter popover restarts the auto-hide countdown, which
+        // Closing a console popover restarts the auto-hide countdown, which
         // may have fired (and been ignored) while the popover was up.
         .onChange(of: chaptersPresented) { _, presented in
+            if !presented { interactionTick += 1 }
+        }
+        .onChange(of: audioPresented) { _, presented in
+            if !presented { interactionTick += 1 }
+        }
+        .onChange(of: subtitlesPresented) { _, presented in
             if !presented { interactionTick += 1 }
         }
         // CLI-driven check for the session swap (see AGENTS.md): chain into
@@ -205,11 +213,17 @@ private struct PlayerSessionView: View {
         }
         .task {
             await start()
-            // CLI-driven check (see AGENTS.md): open the chapter popover so a
+            // CLI-driven check (see AGENTS.md): open a console popover so a
             // screenshot can verify it without a tap.
-            if ProcessInfo.processInfo.arguments.contains("-chapters"), !chapters.isEmpty {
+            let arguments = ProcessInfo.processInfo.arguments
+            if let flag = arguments.firstIndex(of: "-popover"), flag + 1 < arguments.count {
                 try? await Task.sleep(for: .seconds(2))
-                chaptersPresented = true
+                switch arguments[flag + 1] {
+                case "chapters": chaptersPresented = !chapters.isEmpty
+                case "audio": audioPresented = !model.audioTracks.isEmpty
+                case "cc": subtitlesPresented = !model.subtitleTracks.isEmpty
+                default: break
+                }
             }
             await loadNextEpisode()
             await loadThreads()
@@ -343,10 +357,10 @@ private struct PlayerSessionView: View {
 
                 HStack(spacing: 8) {
                     if !model.audioTracks.isEmpty {
-                        audioMenu
+                        audioButton
                     }
                     if !model.subtitleTracks.isEmpty {
-                        subtitleMenu
+                        subtitleButton
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .trailing)
@@ -388,81 +402,82 @@ private struct PlayerSessionView: View {
         currentChapter?.title
     }
 
-    // A system Menu clips long chapter lists at the screen edge with no way
-    // to scroll, so the pill opens a scrollable popover instead.
-    private var chaptersButton: some View {
+    // A system Menu clips long lists at the screen edge with no way to
+    // scroll, so the console pills open scrollable popovers instead.
+    private func consolePopoverButton(
+        _ title: String,
+        isPresented: Binding<Bool>,
+        rows: [ConsoleList.Row],
+        onSelect: @escaping (Int) -> Void
+    ) -> some View {
         Button {
-            chaptersPresented = true
+            isPresented.wrappedValue = true
             interactionTick += 1
         } label: {
-            consolePillLabel("Chapters")
+            consolePillLabel(title)
         }
         .buttonStyle(.plain)
         .hoverEffect(.lift)
-        .popover(isPresented: $chaptersPresented) {
-            ChapterList(
-                chapters: chapters,
-                currentIndex: currentChapter?.index,
-                accent: accent.tint
-            ) { chapter in
-                model.controller?.seek(to: Double(chapter.startMs ?? 0) / 1000)
-                chaptersPresented = false
+        .popover(isPresented: isPresented) {
+            ConsoleList(rows: rows, accent: accent.tint) { id in
+                onSelect(id)
+                isPresented.wrappedValue = false
             }
             .presentationCompactAdaptation(.popover)
             .presentationBackground(consoleFill)
         }
     }
 
-    private var audioMenu: some View {
-        Menu {
-            ForEach(model.audioTracks, id: \.uid) { track in
-                Button {
-                    model.selectAudio(track.id)
-                    interactionTick += 1
-                } label: {
-                    if model.selectedAudioId == track.id {
-                        Label(track.displayName, systemImage: "checkmark")
-                    } else {
-                        Text(track.displayName)
-                    }
-                }
+    private var chaptersButton: some View {
+        consolePopoverButton(
+            "Chapters",
+            isPresented: $chaptersPresented,
+            rows: chapters.map { chapter in
+                ConsoleList.Row(
+                    id: chapter.index,
+                    title: chapter.title ?? "Chapter \(chapter.index + 1)",
+                    detail: formatClock(Double(chapter.startMs ?? 0) / 1000),
+                    current: chapter.index == currentChapter?.index
+                )
             }
-        } label: {
-            consolePillLabel("Audio")
+        ) { index in
+            guard let chapter = chapters.first(where: { $0.index == index }) else { return }
+            model.controller?.seek(to: Double(chapter.startMs ?? 0) / 1000)
         }
-        .buttonStyle(.plain)
-        .hoverEffect(.lift)
     }
 
-    private var subtitleMenu: some View {
-        Menu {
-            Button {
-                model.selectSubtitle(nil)
-                interactionTick += 1
-            } label: {
-                if model.selectedSubtitleId == nil {
-                    Label("Off", systemImage: "checkmark")
-                } else {
-                    Text("Off")
-                }
+    private var audioButton: some View {
+        consolePopoverButton(
+            "Audio",
+            isPresented: $audioPresented,
+            rows: model.audioTracks.map { track in
+                ConsoleList.Row(
+                    id: track.id,
+                    title: track.displayName,
+                    current: track.id == model.selectedAudioId
+                )
             }
-            ForEach(model.subtitleTracks, id: \.uid) { track in
-                Button {
-                    model.selectSubtitle(track.id)
-                    interactionTick += 1
-                } label: {
-                    if model.selectedSubtitleId == track.id {
-                        Label(track.displayName, systemImage: "checkmark")
-                    } else {
-                        Text(track.displayName)
-                    }
-                }
-            }
-        } label: {
-            consolePillLabel("CC")
+        ) { id in
+            model.selectAudio(id)
         }
-        .buttonStyle(.plain)
-        .hoverEffect(.lift)
+    }
+
+    /// mpv track ids start at 1, so -1 stands in for "Off".
+    private var subtitleButton: some View {
+        consolePopoverButton(
+            "CC",
+            isPresented: $subtitlesPresented,
+            rows: [ConsoleList.Row(id: -1, title: "Off", current: model.selectedSubtitleId == nil)]
+                + model.subtitleTracks.map { track in
+                    ConsoleList.Row(
+                        id: track.id,
+                        title: track.displayName,
+                        current: track.id == model.selectedSubtitleId
+                    )
+                }
+        ) { id in
+            model.selectSubtitle(id == -1 ? nil : id)
+        }
     }
 
     /// Space toggles pause, arrows seek, shift-arrows step chapters.
@@ -646,44 +661,51 @@ private struct PlayerSessionView: View {
     }
 }
 
-/// The chapter picker behind the Chapters pill: a scrollable list with start
-/// times, opened scrolled to the playing chapter.
-private struct ChapterList: View {
-    var chapters: [Chapter]
-    var currentIndex: Int?
+/// The picker behind the console pills (chapters, audio, subtitles): a
+/// scrollable list with the current row accented, opened scrolled to it.
+private struct ConsoleList: View {
+    struct Row: Identifiable {
+        let id: Int
+        let title: String
+        var detail: String? = nil
+        var current = false
+    }
+
+    var rows: [Row]
     var accent: Color
-    var onSelect: (Chapter) -> Void
+    var onSelect: (Int) -> Void
 
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(spacing: 2) {
-                    ForEach(chapters, id: \.index) { chapter in
-                        let current = chapter.index == currentIndex
+                    ForEach(rows) { row in
                         Button {
-                            onSelect(chapter)
+                            onSelect(row.id)
                         } label: {
                             HStack(spacing: 14) {
-                                Text(chapter.title ?? "Chapter \(chapter.index + 1)")
+                                Text(row.title)
                                     .font(.labelLarge)
-                                    .foregroundStyle(current ? accent : Color.ink)
+                                    .foregroundStyle(row.current ? accent : Color.ink)
                                     .multilineTextAlignment(.leading)
                                 Spacer(minLength: 14)
-                                Text(formatClock(Double(chapter.startMs ?? 0) / 1000))
-                                    .font(.labelMedium.monospacedDigit())
-                                    .foregroundStyle(current ? accent.opacity(0.8) : Color.muted)
+                                if let detail = row.detail {
+                                    Text(detail)
+                                        .font(.labelMedium.monospacedDigit())
+                                        .foregroundStyle(row.current ? accent.opacity(0.8) : Color.muted)
+                                }
                             }
                             .padding(.horizontal, 14)
                             .padding(.vertical, 10)
                             .background(
-                                current ? accent.opacity(0.14) : .clear,
+                                row.current ? accent.opacity(0.14) : .clear,
                                 in: RoundedRectangle(cornerRadius: 10)
                             )
                             .contentShape(RoundedRectangle(cornerRadius: 10))
                         }
                         .buttonStyle(.plain)
                         .hoverEffect(.highlight)
-                        .id(chapter.index)
+                        .id(row.id)
                     }
                 }
                 .padding(10)
@@ -691,8 +713,8 @@ private struct ChapterList: View {
             .frame(width: 360)
             .frame(maxHeight: 440)
             .onAppear {
-                if let currentIndex {
-                    proxy.scrollTo(currentIndex, anchor: .center)
+                if let current = rows.first(where: { $0.current }) {
+                    proxy.scrollTo(current.id, anchor: .center)
                 }
             }
         }

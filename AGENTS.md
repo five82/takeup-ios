@@ -8,7 +8,7 @@ This file provides guidance when working with code in this repository.
 - The `.xcodeproj` is generated and gitignored. Run `xcodegen generate` after adding, removing, or renaming files, or after editing `project.yml`.
 - Build and test on the iOS simulator by default. Use the Xcode beta toolchain (`DEVELOPER_DIR=/Applications/Xcode-beta.app`) so the simulator matches the physical iPad's OS.
 - Unlike the Android emulator, video playback (including MKV via MPVKit) works in the simulator. HDR/EDR output, hardware decode, and playback smoothness must be verified on the physical iPad.
-- The app has debug launch arguments for CLI-driven checks: `-autoplay <itemId>` jumps straight into playback, `-tab <home|movies|shorts|tv|collections|genres|search|downloads|settings>` selects a sidebar section, `-detail <itemId>` pushes an item's detail screen (add `-person <name>` to also push the cast-card person search), `-server <address>` sets the Loom address (an unroutable address simulates offline), `-download <itemId>` starts a download, `-chapters` opens the player's chapter popover shortly after playback starts (pair with `-autoplay`), `-autochain` plays the next episode automatically when the end-of-playback overlay would offer it, and `-landscape` narrows supported orientations to landscape. In practice `-landscape` has not reliably rotated the headless simulator; rotate via Simulator.app instead (see the Simulator section).
+- The app has debug launch arguments for CLI-driven checks: `-autoplay <itemId>` jumps straight into playback, `-tab <home|movies|shorts|tv|collections|genres|search|downloads|settings>` selects a sidebar section, `-detail <itemId>` pushes an item's detail screen (add `-person <name>` to also push the cast-card person search), `-server <address>` sets the Loom address (an unroutable address simulates offline), `-download <itemId>` starts a download, `-popover <chapters|audio|cc>` opens a player console popover shortly after playback starts (pair with `-autoplay`), `-autochain` plays the next episode automatically when the end-of-playback overlay would offer it, and `-landscape` narrows supported orientations to landscape. In practice `-landscape` has not reliably rotated the headless simulator; rotate via Simulator.app instead (see the Simulator section).
 
 ## Project
 
@@ -19,6 +19,8 @@ Single-developer hobby project - prefer simple, maintainable solutions over clev
 Loom and Takeup are developed and deployed together for one user. Do not preserve compatibility with older versions of either application; make coordinated changes in both repositories instead of adding compatibility shims.
 
 Loom serves original files directly with no transcoding and no authentication over trusted-LAN HTTP. AVPlayer cannot play this library (Matroska/Opus/PGS); MPVKit is a hard requirement, not a preference.
+
+Takeup deliberately does not support PGS subtitles: the player's subtitle picker filters the track list to SubRip only, so files whose only subtitles are PGS show no CC pill. Do not "fix" this by surfacing PGS tracks.
 
 MPVKit is vendored (`Vendor/MPVKit`) with a locally patched `Libmpv.xcframework` that adds live resize to the Metal rendering path — without it, rotating during playback leaves the picture at its old geometry. The framework binary is gitignored, not committed; after a fresh clone, build it with `scripts/build-libmpv.sh` (~30-60 minutes). See `docs/mpv-live-resize.md` before touching the player's Metal layer handling or bumping MPVKit.
 
