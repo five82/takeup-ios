@@ -6,6 +6,10 @@
 Takeup.xcodeproj/
 DerivedData*/
 .DS_Store
+
+# Locally built patched libmpv — no binaries in the repo. Rebuild with
+# scripts/build-libmpv.sh after a fresh clone (see docs/mpv-live-resize.md).
+Vendor/MPVKit/Frameworks/
 # gitignore contributors: remember to update Global/Xcode.gitignore, Objective-C.gitignore & Swift.gitignore
 
 ## User settings

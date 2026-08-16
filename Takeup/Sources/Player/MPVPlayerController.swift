@@ -49,9 +49,6 @@ final class MPVPlayerController: UIViewController {
     private var mpv: OpaquePointer!
     private let eventQueue = DispatchQueue(label: "mpv.events", qos: .userInitiated)
     private var state = ObservedState()
-    /// Freeze-frame shown while the player rebuilds after a resize.
-    private let coverView = UIImageView()
-    private var awaitingFirstFrame = false
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -63,121 +60,30 @@ final class MPVPlayerController: UIViewController {
         metalLayer.backgroundColor = UIColor.black.cgColor
         view.layer.addSublayer(metalLayer)
 
-        coverView.contentMode = .scaleAspectFit
-        coverView.backgroundColor = .black
-        coverView.isHidden = true
-        view.addSubview(coverView)
-
         setupMpv()
         if let playURL {
             loadFile(playURL, startSeconds: startSeconds)
         }
     }
 
-    /// MPVKit's Metal/MoltenVK context has no live-resize support (MPVKit
-    /// issue #3): no VOCTRL handling, and reconfig-based nudges reapply the
-    /// stale surface size no matter when they run. The only reliable path is
-    /// rebuilding the player at the new size, resuming position, pause
-    /// state, and track selections. Costs a brief blink after rotating.
-    @objc private func refreshRenderSize() {
-        guard mpv != nil, let playURL else { return }
-        let resumeSeconds = getDouble("time-pos")
-        let wasPaused = getFlag("pause")
-        let audioTrack = getString("aid")
-        let subtitleTrack = getString("sid")
-
-        shutdown()
-        metalLayer.removeFromSuperlayer()
-        metalLayer = MetalLayer()
-        metalLayer.frame = view.bounds
-        metalLayer.contentsScale = view.window?.screen.nativeScale ?? UIScreen.main.nativeScale
-        metalLayer.framebufferOnly = true
-        metalLayer.backgroundColor = UIColor.black.cgColor
-        // Below the freeze-frame cover, so the rebuild happens behind it.
-        view.layer.insertSublayer(metalLayer, below: coverView.layer)
-
-        setupMpv()
-        loadFile(playURL, startSeconds: max(0, resumeSeconds))
-        if wasPaused {
-            setFlag("pause", true)
-        }
-        if let audioTrack {
-            mpv_set_property_string(mpv, "aid", audioTrack)
-        }
-        if let subtitleTrack {
-            mpv_set_property_string(mpv, "sid", subtitleTrack)
-        }
-
-        // Crossfade the freeze-frame away on the new player's first frame,
-        // with a deadline in case no frame arrives (e.g. load failure).
-        awaitingFirstFrame = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in
-            self?.hideRotationCover()
-        }
-    }
-
-    private var lastLayoutSize: CGSize = .zero
-
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         // bounds, not frame: frame is expressed in the rotating superview's
         // coordinate space, which leaves the layer with stale geometry after
-        // an orientation change (picture cut off / off-center). Disable the
-        // implicit CALayer animation so the resize tracks rotation cleanly.
+        // an orientation change. Disable the implicit CALayer animation so
+        // the resize tracks rotation cleanly.
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         metalLayer.frame = view.bounds
         // MoltenVK sets drawableSize explicitly, which stops it tracking the
-        // layer's bounds — without this the drawable keeps its pre-rotation
-        // size and mpv renders the picture off-center.
+        // layer's bounds. Our patched libmpv (see docs/mpv-live-resize.md)
+        // polls this value each event cycle and resizes the swapchain.
         let scale = metalLayer.contentsScale
         metalLayer.drawableSize = CGSize(
             width: view.bounds.width * scale,
             height: view.bounds.height * scale
         )
         CATransaction.commit()
-
-        // Trigger the reconfig off layout (viewWillTransition is not
-        // reliably forwarded to representable-hosted children), debounced
-        // until the transition settles. Also covers windowed resizes.
-        coverView.frame = view.bounds
-
-        let size = view.bounds.size
-        if lastLayoutSize != .zero, lastLayoutSize != size {
-            // Cover the stale-geometry picture with a freeze-frame of the
-            // current video, aspect-fit for the new size, until the rebuilt
-            // player delivers its first frame.
-            showRotationCover()
-            metalLayer.isHidden = true
-            NSObject.cancelPreviousPerformRequests(withTarget: self, selector: #selector(refreshRenderSize), object: nil)
-            perform(#selector(refreshRenderSize), with: nil, afterDelay: 0.3)
-        }
-        lastLayoutSize = size
-    }
-
-    private func showRotationCover() {
-        guard mpv != nil, coverView.isHidden else { return }
-        let path = NSTemporaryDirectory() + "rotation-cover.jpg"
-        try? FileManager.default.removeItem(atPath: path)
-        command("screenshot-to-file", args: [path, "subtitles"])
-        if let image = UIImage(contentsOfFile: path) {
-            coverView.image = image
-        } else {
-            coverView.image = nil
-        }
-        coverView.alpha = 1
-        coverView.isHidden = false
-    }
-
-    private func hideRotationCover() {
-        guard !coverView.isHidden else { return }
-        UIView.animate(withDuration: 0.15) {
-            self.coverView.alpha = 0
-        } completion: { _ in
-            self.coverView.isHidden = true
-            self.coverView.alpha = 1
-            self.coverView.image = nil
-        }
     }
 
     private func setupMpv() {
@@ -203,7 +109,6 @@ final class MPVPlayerController: UIViewController {
         checkError(mpv_set_option_string(mpv, "target-colorspace-hint", "yes"))
         checkError(mpv_set_option_string(mpv, "video-rotate", "no"))
         checkError(mpv_set_option_string(mpv, "keep-open", "yes"))
-        checkError(mpv_set_option_string(mpv, "screenshot-format", "jpg"))
         checkError(mpv_set_option_string(mpv, "subs-match-os-language", "yes"))
         checkError(mpv_set_option_string(mpv, "subs-fallback", "yes"))
 
@@ -278,13 +183,6 @@ final class MPVPlayerController: UIViewController {
     }
 
     // MARK: - Property helpers
-
-    private func getDouble(_ name: String) -> Double {
-        guard mpv != nil else { return 0 }
-        var data = Double()
-        mpv_get_property(mpv, name, MPV_FORMAT_DOUBLE, &data)
-        return data
-    }
 
     private func getString(_ name: String) -> String? {
         guard mpv != nil else { return nil }
@@ -370,12 +268,6 @@ final class MPVPlayerController: UIViewController {
         case "time-pos":
             if let value = UnsafePointer<Double>(OpaquePointer(property.data))?.pointee {
                 state.timeSeconds = value
-                if awaitingFirstFrame {
-                    awaitingFirstFrame = false
-                    DispatchQueue.main.async { [weak self] in
-                        self?.hideRotationCover()
-                    }
-                }
             }
         case "duration":
             if let value = UnsafePointer<Double>(OpaquePointer(property.data))?.pointee {

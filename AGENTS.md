@@ -20,6 +20,8 @@ Loom and Takeup are developed and deployed together for one user. Do not preserv
 
 Loom serves original files directly with no transcoding and no authentication over trusted-LAN HTTP. AVPlayer cannot play this library (Matroska/Opus/PGS); MPVKit is a hard requirement, not a preference.
 
+MPVKit is vendored (`Vendor/MPVKit`) with a locally patched `Libmpv.xcframework` that adds live resize to the Metal rendering path — without it, rotating during playback leaves the picture at its old geometry. The framework binary is gitignored, not committed; after a fresh clone, build it with `scripts/build-libmpv.sh` (~30-60 minutes). See `docs/mpv-live-resize.md` before touching the player's Metal layer handling or bumping MPVKit.
+
 ## Critical Expectations
 
 - Apply YAGNI ("You Aren't Gonna Need It") and KISS ("Keep It Simple, Stupid"). Build only what the current task requires; do not add abstractions, generality, or future-proofing for needs that do not yet exist. When two approaches work, take the simpler one.

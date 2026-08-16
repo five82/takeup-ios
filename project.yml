@@ -5,10 +5,11 @@ options:
     iOS: "17.0"
   createIntermediateGroups: true
 
+# Vendored MPVKit: official 0.41.0 binaries except Libmpv, which is built
+# locally with a live-resize patch. See docs/mpv-live-resize.md.
 packages:
   MPVKit:
-    url: https://github.com/mpvkit/MPVKit.git
-    from: "0.41.0"
+    path: Vendor/MPVKit
 
 schemes:
   Takeup:

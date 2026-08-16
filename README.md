@@ -33,6 +33,16 @@ Loom streams source files without transcoding or remuxing; playback uses libmpv,
 
 ## Building
 
+Playback depends on a locally patched libmpv (live resize on the Metal
+rendering path; see `docs/mpv-live-resize.md`). No binaries are committed,
+so build it once first — FFmpeg and mpv compile from source, roughly 30-60
+minutes:
+
+```bash
+brew install meson ninja wget
+./scripts/build-libmpv.sh
+```
+
 The Xcode project is generated from `project.yml` with [XcodeGen](https://github.com/yonaskolb/XcodeGen):
 
 ```bash
