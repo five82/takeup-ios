@@ -51,9 +51,10 @@ enum SidebarSection: String, CaseIterable, Identifiable {
         case .movies: .ember
         case .tv: .teal
         case .shorts: .amber
-        // Collections and Genres are the old Browse rooms; both live under
-        // the selvedge's violet thread.
-        case .collections, .genres: .violet
+        // Collections keeps the selvedge's violet thread from the old Browse
+        // room; Genres gets its own cobalt so the two dots read apart.
+        case .collections: .violet
+        case .genres: .cobalt
         case .home, .search, .downloads, .settings: nil
         }
     }

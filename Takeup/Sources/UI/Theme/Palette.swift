@@ -19,6 +19,9 @@ extension Color {
     static let teal = Color(hexValue: 0x3FD1C4)
     static let amber = Color(hexValue: 0xFFB84D)
     static let violet = Color(hexValue: 0xA78BFA)
+    // Fifth thread, added when Browse split into Collections and Genres: a
+    // cornflower blue sitting in the palette gap between teal and violet.
+    static let cobalt = Color(hexValue: 0x5FA0FF)
 
     init(hexValue: UInt32) {
         self.init(
