@@ -33,6 +33,7 @@ final class PlayerModel {
     var durationSeconds: Double = 0
     var paused = false
     var buffering = true
+    var ended = false
     var audioTracks: [MPVTrack] = []
     var subtitleTracks: [MPVTrack] = []
     var selectedAudioId: Int?
@@ -45,6 +46,7 @@ final class PlayerModel {
         durationSeconds = state.durationSeconds
         paused = state.paused
         buffering = state.buffering
+        ended = state.ended
     }
 
     func applyTracks(_ tracks: [MPVTrack]) {
@@ -70,13 +72,36 @@ final class PlayerModel {
         controller?.setSubtitleTrack(id)
         selectedSubtitleId = id
     }
+
+    func replay() {
+        controller?.seek(to: 0)
+        controller?.setPaused(false)
+    }
+}
+
+/// Presents one playback session at a time; picking "Up next" at the end of
+/// an episode swaps the item, and the `.id` change rebuilds the session (a
+/// fresh mpv instance), which also final-reports the finished episode.
+struct PlayerScreen: View {
+    let item: Item
+
+    @State private var chained: Item?
+
+    var body: some View {
+        let active = chained ?? item
+        PlayerSessionView(item: active) { next in
+            chained = next
+        }
+        .id(active.id)
+    }
 }
 
 /// Full-screen playback with minimal overlay controls. Mirrors the Android
 /// app's progress protocol: report every 10s while playing, on pause, and
 /// once more on exit.
-struct PlayerScreen: View {
+private struct PlayerSessionView: View {
     let item: Item
+    let playNext: (Item) -> Void
 
     @Environment(AppEnvironment.self) private var appEnvironment
     @Environment(DownloadManager.self) private var downloads
@@ -86,6 +111,7 @@ struct PlayerScreen: View {
     @State private var playbackURL: URL?
     @State private var startSeconds: Double = 0
     @State private var chapters: [Chapter] = []
+    @State private var nextEpisode: Item?
     @State private var loadError: String?
     @State private var controlsVisible = true
     @State private var scrubbing = false
@@ -110,8 +136,12 @@ struct PlayerScreen: View {
                     .tint(.white)
             }
 
-            if controlsVisible {
+            if controlsVisible && !model.ended {
                 controls
+            }
+
+            if model.ended {
+                endOverlay
             }
         }
         .contentShape(Rectangle())
@@ -122,7 +152,17 @@ struct PlayerScreen: View {
         }
         .statusBarHidden()
         .persistentSystemOverlays(.hidden)
-        .task { await start() }
+        // CLI-driven check for the session swap (see AGENTS.md): chain into
+        // the next episode as soon as the end overlay would offer it.
+        .onChange(of: model.ended) { _, ended in
+            guard ended, ProcessInfo.processInfo.arguments.contains("-autochain"),
+                  let next = nextEpisode else { return }
+            playNext(next)
+        }
+        .task {
+            await start()
+            await loadNextEpisode()
+        }
         .task { await progressLoop() }
         .onDisappear {
             Task { await reportProgress() }
@@ -215,6 +255,57 @@ struct PlayerScreen: View {
         .foregroundStyle(.white)
     }
 
+    /// Shown when playback reaches the end: a tappable "Up next" card for
+    /// episodes with a successor, otherwise replay/exit. No auto-advance
+    /// countdown, mirroring the Android app.
+    private var endOverlay: some View {
+        ZStack {
+            Color.black.opacity(0.72).ignoresSafeArea()
+            VStack(spacing: 12) {
+                if let next = nextEpisode {
+                    Text("Up next")
+                        .font(.subheadline)
+                        .foregroundStyle(.white.opacity(0.6))
+                    Button {
+                        playNext(next)
+                    } label: {
+                        VStack(spacing: 10) {
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 10)
+                                    .fill(.white.opacity(0.1))
+                                if let url = thumbURL(for: next) {
+                                    AsyncImage(url: url) { image in
+                                        image.resizable().scaledToFill()
+                                    } placeholder: {
+                                        Color.clear
+                                    }
+                                }
+                            }
+                            .frame(width: 320, height: 180)
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                            Text("\(episodeLabel(next)) · \(next.title)")
+                                .font(.headline)
+                                .foregroundStyle(.white)
+                                .lineLimit(1)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    Button("Play Again") {
+                        model.replay()
+                    }
+                    .font(.headline)
+                    .foregroundStyle(.white)
+                }
+                Button("Done") {
+                    dismiss()
+                }
+                .foregroundStyle(.white.opacity(0.6))
+                .padding(.top, 8)
+            }
+        }
+    }
+
     private var hasChapters: Bool {
         !chapters.isEmpty
     }
@@ -303,6 +394,50 @@ struct PlayerScreen: View {
         } catch {
             loadError = error.localizedDescription
         }
+    }
+
+    /// Loom's Next Up cannot say what follows this specific episode, so the
+    /// successor is computed locally from the show's own episode list — or,
+    /// when the server is unreachable, from the downloaded episodes of the
+    /// same season (the download catalog does not capture show ancestry).
+    private func loadNextEpisode() async {
+        guard item.kind == "episode" else { return }
+        if let client = appEnvironment.client,
+           let next = try? await onlineNextEpisode(client) {
+            nextEpisode = next
+            return
+        }
+        let siblings = downloads.completed.map(\.item).filter { $0.parentId == item.parentId }
+        nextEpisode = nextEpisodeAfter(item.id, in: siblings)
+    }
+
+    private func onlineNextEpisode(_ client: LoomClient) async throws -> Item? {
+        guard let seasonId = item.parentId else { return nil }
+        let season = try await client.item(id: seasonId)
+        let episodes: [Item]
+        if let showId = season.parentId {
+            let seasons = try await client.children(of: showId).items.filter { $0.kind == "season" }
+            episodes = try await withThrowingTaskGroup(of: [Item].self) { group in
+                for season in seasons {
+                    group.addTask { try await client.children(of: season.id).items }
+                }
+                return try await group.reduce(into: []) { $0 += $1 }
+            }
+        } else {
+            episodes = try await client.children(of: seasonId).items
+        }
+        return nextEpisodeAfter(item.id, in: episodes)
+    }
+
+    private func thumbURL(for item: Item) -> URL? {
+        appEnvironment.client?.imageURL(id: item.thumbImageId, tag: item.thumbImageTag, width: 480)
+    }
+
+    private func episodeLabel(_ item: Item) -> String {
+        guard let season = item.seasonNumber, let episode = item.episodeNumber else {
+            return "Episode"
+        }
+        return "S\(season) E\(episode)"
     }
 
     private func progressLoop() async {

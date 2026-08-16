@@ -31,9 +31,19 @@ struct LoomClient {
         let _: EmptyResponse = try await request("health")
     }
 
-    // List endpoints wrap their arrays in {"items": [...]}.
+    // List endpoints wrap their arrays in {"items": [...]}; an empty list
+    // arrives as {"items": null} (Go marshals nil slices as null).
     private struct Wrapped<Element: Decodable>: Decodable {
         let items: [Element]
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            items = try container.decodeIfPresent([Element].self, forKey: .items) ?? []
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case items
+        }
     }
 
     func libraries() async throws -> [Library] {

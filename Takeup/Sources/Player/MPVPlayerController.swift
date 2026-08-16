@@ -36,6 +36,8 @@ final class MPVPlayerController: UIViewController {
         var durationSeconds: Double = 0
         var paused: Bool = false
         var buffering: Bool = true
+        /// True once playback hits the end (keep-open holds the last frame).
+        var ended: Bool = false
     }
 
     var playURL: URL?
@@ -118,6 +120,7 @@ final class MPVPlayerController: UIViewController {
         mpv_observe_property(mpv, 0, "duration", MPV_FORMAT_DOUBLE)
         mpv_observe_property(mpv, 0, "pause", MPV_FORMAT_FLAG)
         mpv_observe_property(mpv, 0, "paused-for-cache", MPV_FORMAT_FLAG)
+        mpv_observe_property(mpv, 0, "eof-reached", MPV_FORMAT_FLAG)
 
         mpv_set_wakeup_callback(mpv, { ctx in
             let controller = unsafeBitCast(ctx, to: MPVPlayerController.self)
@@ -141,6 +144,10 @@ final class MPVPlayerController: UIViewController {
 
     func togglePause() {
         setFlag("pause", !getFlag("pause"))
+    }
+
+    func setPaused(_ paused: Bool) {
+        setFlag("pause", paused)
     }
 
     func seek(to seconds: Double) {
@@ -280,6 +287,10 @@ final class MPVPlayerController: UIViewController {
         case "paused-for-cache":
             if let value = UnsafePointer<Bool>(OpaquePointer(property.data))?.pointee {
                 state.buffering = value
+            }
+        case "eof-reached":
+            if let value = UnsafePointer<Bool>(OpaquePointer(property.data))?.pointee {
+                state.ended = value
             }
         default:
             return

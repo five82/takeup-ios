@@ -47,15 +47,30 @@ struct Item: Codable, Identifiable, Hashable {
     var isPlayable: Bool { kind == "movie" || kind == "episode" }
 }
 
+// Loom (Go) marshals empty lists as `"items": null`, so `items` must decode
+// null as empty here and in every other list wrapper.
 struct ItemsPage: Codable {
     let items: [Item]
     let limit: Int?
     let offset: Int?
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        items = try container.decodeIfPresent([Item].self, forKey: .items) ?? []
+        limit = try container.decodeIfPresent(Int.self, forKey: .limit)
+        offset = try container.decodeIfPresent(Int.self, forKey: .offset)
+    }
 }
 
 struct SearchResponse: Codable {
     let items: [Item]
     let fuzzy: Bool?
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        items = try container.decodeIfPresent([Item].self, forKey: .items) ?? []
+        fuzzy = try container.decodeIfPresent(Bool.self, forKey: .fuzzy)
+    }
 }
 
 struct FeaturedPick: Codable {
