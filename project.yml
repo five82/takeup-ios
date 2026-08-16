@@ -2,7 +2,7 @@ name: Takeup
 options:
   bundleIdPrefix: xyz.five82
   deploymentTarget:
-    iOS: "17.0"
+    iOS: "26.0"
   createIntermediateGroups: true
 
 # Vendored MPVKit: official 0.41.0 binaries except Libmpv, which is built

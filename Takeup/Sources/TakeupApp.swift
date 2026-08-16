@@ -6,6 +6,15 @@ import AVFAudio
 final class AppDelegate: NSObject, UIApplicationDelegate {
     @MainActor static var backgroundCompletionHandler: (() -> Void)?
 
+    /// `-landscape` narrows supported orientations so CLI-driven headless
+    /// simulators (which cannot be rotated) come up in landscape.
+    func application(
+        _ application: UIApplication,
+        supportedInterfaceOrientationsFor window: UIWindow?
+    ) -> UIInterfaceOrientationMask {
+        ProcessInfo.processInfo.arguments.contains("-landscape") ? .landscape : .all
+    }
+
     func application(
         _ application: UIApplication,
         handleEventsForBackgroundURLSession identifier: String,
@@ -30,6 +39,10 @@ struct TakeupApp: App {
     var body: some Scene {
         WindowGroup {
             RootView()
+                // Dark-only, like the Android app: the logo artwork is
+                // light-on-dark and a player lives in dim rooms.
+                .preferredColorScheme(.dark)
+                .tint(.ember)
                 .environment(environment)
                 .environment(DownloadManager.shared)
                 .onChange(of: scenePhase) { _, phase in

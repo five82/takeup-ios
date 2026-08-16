@@ -61,6 +61,19 @@ struct LoomClient {
         return try await request("items", query: query)
     }
 
+    /// The full catalog of a library, paged until a short page marks the end.
+    /// Discovery shelves shuffle the whole library, so they need all of it.
+    func allItems(library: String) async throws -> [Item] {
+        var all: [Item] = []
+        let pageSize = 200
+        while true {
+            let page = try await items(library: library, limit: pageSize, offset: all.count)
+            all.append(contentsOf: page.items)
+            if page.items.count < pageSize { break }
+        }
+        return all
+    }
+
     func genres() async throws -> [Genre] {
         let wrapped: Wrapped<Genre> = try await request("genres")
         return wrapped.items

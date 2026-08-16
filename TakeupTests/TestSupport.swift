@@ -8,19 +8,25 @@ func makeItem(
     parentId: Int64? = nil,
     season: Int? = nil,
     episode: Int? = nil,
-    title: String = "Item"
+    title: String = "Item",
+    genres: [Genre]? = nil,
+    voteAverage: Double? = nil,
+    durationMs: Int64? = nil,
+    progress: Takeup.Progress? = nil,
+    episodeCount: Int? = nil,
+    unwatchedCount: Int? = nil
 ) -> Item {
     Item(
         id: id, libraryId: nil, parentId: parentId, kind: kind, title: title,
         year: nil, seasonNumber: season, episodeNumber: episode,
         episodeEndNumber: nil, tmdbId: nil, overview: nil, tagline: nil,
-        releaseDate: nil, genres: nil, credits: nil, voteAverage: nil,
+        releaseDate: nil, genres: genres, credits: nil, voteAverage: voteAverage,
         contentRating: nil, status: nil, totalSeasons: nil,
         posterImageId: nil, posterImageTag: nil, backdropImageId: nil,
         backdropImageTag: nil, logoImageId: nil, logoImageTag: nil,
-        thumbImageId: nil, thumbImageTag: nil, mediaTag: nil, durationMs: nil,
-        addedAt: nil, updatedAt: nil, media: nil, progress: nil,
-        episodeCount: nil, unwatchedCount: nil, seriesTitle: nil,
+        thumbImageId: nil, thumbImageTag: nil, mediaTag: nil, durationMs: durationMs,
+        addedAt: nil, updatedAt: nil, media: nil, progress: progress,
+        episodeCount: episodeCount, unwatchedCount: unwatchedCount, seriesTitle: nil,
         seasonTitle: nil
     )
 }

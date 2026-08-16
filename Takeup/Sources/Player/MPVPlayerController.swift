@@ -162,6 +162,12 @@ final class MPVPlayerController: UIViewController {
         command("add", args: ["chapter", String(delta)])
     }
 
+    /// Fill the screen by cropping (panscan) instead of letterboxing.
+    func setCropToFill(_ cropped: Bool) {
+        guard mpv != nil else { return }
+        mpv_set_property_string(mpv, "panscan", cropped ? "1.0" : "0.0")
+    }
+
     func setAudioTrack(_ id: Int) {
         guard mpv != nil else { return }
         mpv_set_property_string(mpv, "aid", String(id))

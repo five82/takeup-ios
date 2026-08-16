@@ -1,33 +1,53 @@
 import SwiftUI
 
-/// Downloaded and in-flight items. Works fully offline: artwork comes from
-/// locally saved posters and playback uses the local file.
+/// Downloaded and in-flight items under the violet thread. Works fully
+/// offline: artwork comes from locally saved posters and playback uses the
+/// local file.
 struct DownloadsView: View {
     @Environment(AppEnvironment.self) private var appEnvironment
     @Environment(DownloadManager.self) private var downloads
     @State private var playbackItem: Item?
 
     var body: some View {
-        List {
-            if !downloads.activeProgress.isEmpty {
-                Section("Downloading") {
-                    ForEach(downloads.activeProgress.keys.sorted(), id: \.self) { itemId in
-                        activeRow(itemId: itemId)
+        ZStack {
+            HouseLights(thread: .violet)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    Text("Downloads")
+                        .font(.displaySmall)
+                        .foregroundStyle(Color.ink)
+                        .padding(.top, 16)
+
+                    if !downloads.activeProgress.isEmpty {
+                        RowLabel(text: "Downloading", color: .violet)
+                            .padding(.top, 24)
+                        ForEach(downloads.activeProgress.keys.sorted(), id: \.self) { itemId in
+                            activeRow(itemId: itemId)
+                        }
+                    }
+
+                    RowLabel(text: "Downloaded", color: .violet)
+                        .padding(.top, 24)
+                    if downloads.completed.isEmpty {
+                        Text("Nothing downloaded yet. Use the download button on a movie or episode.")
+                            .font(.bodyMedium)
+                            .foregroundStyle(Color.muted)
+                            .padding(.top, 12)
+                    } else {
+                        ForEach(downloads.completed) { entry in
+                            completedRow(entry)
+                        }
                     }
                 }
-            }
-            Section("Downloaded") {
-                if downloads.completed.isEmpty {
-                    Text("Nothing downloaded yet. Use the Download button on a movie or episode.")
-                        .foregroundStyle(.secondary)
-                } else {
-                    ForEach(downloads.completed) { entry in
-                        completedRow(entry)
-                    }
-                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 32)
+                .frame(maxWidth: 720, alignment: .leading)
+                .frame(maxWidth: .infinity)
             }
         }
-        .navigationTitle("Downloads")
+        .background(Color.stage)
+        .toolbarBackground(.hidden, for: .navigationBar)
+        .navigationBarTitleDisplayMode(.inline)
         .fullScreenCover(item: $playbackItem) { playable in
             PlayerScreen(item: playable)
         }
@@ -36,65 +56,74 @@ struct DownloadsView: View {
     private func activeRow(itemId: Int64) -> some View {
         let title = downloads.pendingItems[itemId]?.title ?? "Item \(itemId)"
         let fraction = downloads.activeProgress[itemId] ?? 0
-        return HStack {
-            VStack(alignment: .leading, spacing: 6) {
+        return HStack(spacing: 14) {
+            VStack(alignment: .leading, spacing: 8) {
                 Text(title)
-                ProgressView(value: fraction)
+                    .font(.titleSmall)
+                    .foregroundStyle(Color.ink)
+                ThreadProgress(fraction: fraction, color: .violet)
             }
             Text(fraction.formatted(.percent.precision(.fractionLength(0))))
-                .font(.callout.monospacedDigit())
-                .foregroundStyle(.secondary)
+                .font(.labelLarge.monospacedDigit())
+                .foregroundStyle(Color.muted)
             Button {
                 downloads.cancel(itemId)
             } label: {
                 Image(systemName: "xmark.circle.fill")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.muted)
             }
             .buttonStyle(.plain)
+            .hoverEffect(.lift)
         }
+        .padding(.vertical, 10)
     }
 
     private func completedRow(_ entry: DownloadEntry) -> some View {
         Button {
             playbackItem = entry.item
         } label: {
-            HStack(spacing: 12) {
-                AsyncImage(url: downloads.posterURL(for: entry.item.id)) { image in
-                    image.resizable().aspectRatio(contentMode: .fill)
-                } placeholder: {
-                    Rectangle().fill(.quaternary)
+            HStack(spacing: 14) {
+                ZStack {
+                    Color.surface1
+                    if let url = downloads.posterURL(for: entry.item.id) {
+                        CachedImage(url: url, contentMode: .fill)
+                    }
                 }
                 .frame(width: 50, height: 75)
                 .clipShape(RoundedRectangle(cornerRadius: 6))
 
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 3) {
                     Text(entry.item.title)
-                        .font(.body.weight(.medium))
+                        .font(.titleSmall)
+                        .foregroundStyle(Color.ink)
                     Text(subtitle(for: entry))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(.labelSmall)
+                        .foregroundStyle(Color.muted)
                 }
                 Spacer()
                 Image(systemName: "play.circle")
-                    .font(.title2)
-                    .foregroundStyle(.tint)
+                    .font(.system(size: 22))
+                    .foregroundStyle(Color.violet)
             }
+            .padding(.vertical, 8)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .swipeActions {
+        .hoverEffect(.highlight)
+        .contextMenu {
+            Button("Play", systemImage: "play.fill") { playbackItem = entry.item }
             Button(role: .destructive) {
                 downloads.remove(entry.item.id)
             } label: {
-                Label("Delete", systemImage: "trash")
+                Label("Remove Download", systemImage: "trash")
             }
         }
     }
 
     private func subtitle(for entry: DownloadEntry) -> String {
         var parts: [String] = []
-        if entry.item.kind == "episode",
-           let season = entry.item.seasonNumber, let episode = entry.item.episodeNumber {
-            parts.append("S\(season) E\(episode)")
+        if let label = episodeLabel(entry.item) {
+            parts.append(label)
         } else if let year = entry.item.year, year > 0 {
             parts.append(String(year))
         }

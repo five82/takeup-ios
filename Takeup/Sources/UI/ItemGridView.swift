@@ -1,11 +1,14 @@
 import SwiftUI
 
-/// Paged poster grid over /items, filtered by library or genre. Loom returns
-/// no total count, so the end is detected by a short page.
+/// Poster grid over /items: the full A-Z of a library, a genre, or a
+/// collection's members. Loom returns no total count, so the end is detected
+/// by a short page. Library tabs get their thread's house lights; pushed
+/// genre/collection grids get the lead poster's shadow weave.
 struct ItemGridView: View {
     enum Source: Hashable {
         case library(kind: String)
         case genre(Genre)
+        case collection(MediaCollection)
     }
 
     let source: Source
@@ -16,46 +19,99 @@ struct ItemGridView: View {
     @State private var reachedEnd = false
     @State private var loading = false
     @State private var loadError: String?
+    @State private var leadSwatches: [RGB] = []
+    @State private var playbackItem: Item?
+    @Namespace private var zoom
 
     private static let pageSize = 60
 
     var body: some View {
-        ScrollView {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 160), spacing: 16)], spacing: 24) {
-                ForEach(items) { item in
-                    NavigationLink(value: item) {
-                        PosterCell(item: item)
-                    }
-                    .buttonStyle(.plain)
-                    .onAppear {
-                        if item.id == items.last?.id {
-                            Task { await loadNextPage() }
+        ZStack {
+            background
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text(title)
+                        .font(.displaySmall)
+                        .foregroundStyle(Color.ink)
+                        .padding(.horizontal, 20)
+                        .padding(.top, 16)
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 10)], spacing: 10) {
+                        ForEach(items) { item in
+                            NavigationLink(value: item) {
+                                PosterCard(item: item, thread: thread)
+                            }
+                            .buttonStyle(.plain)
+                            .matchedTransitionSource(id: item.id, in: zoom)
+                            .contextMenu {
+                                if item.isPlayable {
+                                    Button("Play", systemImage: "play.fill") { playbackItem = item }
+                                }
+                                Button("Mark Watched", systemImage: "checkmark.circle") {
+                                    Task {
+                                        try? await appEnvironment.client?.setPlayed(id: item.id, true)
+                                        await reload()
+                                    }
+                                }
+                            }
+                            .onAppear {
+                                if item.id == items.last?.id {
+                                    Task { await loadNextPage() }
+                                }
+                            }
                         }
                     }
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 24)
                 }
             }
-            .padding()
         }
-        .navigationTitle(title)
+        .paneConstrained()
+        .background(Color.stage)
+        .toolbarBackground(.hidden, for: .navigationBar)
+        .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(for: Item.self) { item in
             ItemDetailView(itemId: item.id, fallbackTitle: item.title)
+                .navigationTransition(.zoom(sourceID: item.id, in: zoom))
+        }
+        .fullScreenCover(item: $playbackItem) { playable in
+            PlayerScreen(item: playable)
         }
         .overlay {
             if let loadError, items.isEmpty {
-                ContentUnavailableView {
-                    Label("Can't Reach Loom", systemImage: "wifi.exclamationmark")
-                } description: {
-                    Text(loadError)
-                } actions: {
-                    Button("Retry") {
-                        Task { await loadNextPage() }
-                    }
+                ErrorState(message: loadError) {
+                    Task { await loadNextPage() }
                 }
             } else if loading && items.isEmpty {
-                ProgressView()
+                LoadingState()
             }
         }
         .task { await loadNextPage() }
+    }
+
+    @ViewBuilder
+    private var background: some View {
+        switch source {
+        case .library:
+            HouseLights(thread: thread)
+        case .genre(let genre):
+            ShadowWeave(swatches: leadSwatches, fallback: genreThread(genre.id))
+        case .collection:
+            ShadowWeave(swatches: leadSwatches, fallback: RGB(hexValue: 0xA78BFA))
+        }
+    }
+
+    private var thread: Color {
+        switch source {
+        case .library(let kind): libraryThread(kind)
+        case .genre(let genre): genreThread(genre.id).color
+        case .collection: .violet
+        }
+    }
+
+    private func reload() async {
+        items = []
+        reachedEnd = false
+        await loadNextPage()
     }
 
     private func loadNextPage() async {
@@ -63,66 +119,32 @@ struct ItemGridView: View {
         loading = true
         loadError = nil
         do {
-            let page: ItemsPage
+            let page: [Item]
             switch source {
             case .library(let kind):
-                page = try await client.items(library: kind, limit: Self.pageSize, offset: items.count)
+                page = try await client.items(library: kind, limit: Self.pageSize, offset: items.count).items
+                reachedEnd = page.count < Self.pageSize
             case .genre(let genre):
-                page = try await client.items(genreId: genre.id, limit: Self.pageSize, offset: items.count)
+                page = try await client.items(genreId: genre.id, limit: Self.pageSize, offset: items.count).items
+                reachedEnd = page.count < Self.pageSize
+            case .collection(let collection):
+                page = collection.items
+                reachedEnd = true
             }
-            items.append(contentsOf: page.items)
-            reachedEnd = page.items.count < Self.pageSize
+            items.append(contentsOf: page)
+            await loadLeadSwatches()
         } catch {
             loadError = error.localizedDescription
         }
         loading = false
     }
-}
 
-struct PosterCell: View {
-    let item: Item
-
-    @Environment(AppEnvironment.self) private var appEnvironment
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            AsyncImage(url: appEnvironment.client?.imageURL(id: item.posterImageId, tag: item.posterImageTag, width: 480)) { image in
-                image.resizable().aspectRatio(contentMode: .fill)
-            } placeholder: {
-                ZStack {
-                    Rectangle().fill(.quaternary)
-                    Image(systemName: "film")
-                        .font(.largeTitle)
-                        .foregroundStyle(.tertiary)
-                }
-            }
-            .aspectRatio(2 / 3, contentMode: .fit)
-            .clipShape(RoundedRectangle(cornerRadius: 10))
-            .overlay(alignment: .topTrailing) {
-                if let unwatched = item.unwatchedCount, unwatched > 0 {
-                    Text(String(unwatched))
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 3)
-                        .background(.tint, in: Capsule())
-                        .padding(6)
-                } else if item.progress?.played ?? false {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.title3)
-                        .foregroundStyle(.white, .tint)
-                        .padding(6)
-                }
-            }
-
-            Text(item.title)
-                .font(.callout.weight(.medium))
-                .lineLimit(1)
-            if let year = item.year, year > 0 {
-                Text(String(year))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
+    /// The lead poster's swatches drive the shadow weave on pushed grids.
+    private func loadLeadSwatches() async {
+        if case .library = source { return }
+        guard leadSwatches.isEmpty, let lead = items.first,
+              let url = appEnvironment.client?.imageURL(id: lead.posterImageId, tag: lead.posterImageTag, width: 240)
+        else { return }
+        leadSwatches = await WovenExtractor.threads(for: url)
     }
 }

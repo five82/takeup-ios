@@ -8,7 +8,7 @@ This file provides guidance when working with code in this repository.
 - The `.xcodeproj` is generated and gitignored. Run `xcodegen generate` after adding, removing, or renaming files, or after editing `project.yml`.
 - Build and test on the iOS simulator by default. Use the Xcode beta toolchain (`DEVELOPER_DIR=/Applications/Xcode-beta.app`) so the simulator matches the physical iPad's OS.
 - Unlike the Android emulator, video playback (including MKV via MPVKit) works in the simulator. HDR/EDR output, hardware decode, and playback smoothness must be verified on the physical iPad.
-- The app has debug launch arguments for CLI-driven checks: `-autoplay <itemId>` jumps straight into playback, `-tab <home|movies|shorts|tv|browse|search|downloads|settings>` selects a sidebar section, `-server <address>` sets the Loom address (an unroutable address simulates offline), `-download <itemId>` starts a download, and `-autochain` plays the next episode automatically when the end-of-playback overlay would offer it.
+- The app has debug launch arguments for CLI-driven checks: `-autoplay <itemId>` jumps straight into playback, `-tab <home|movies|shorts|tv|browse|search|downloads|settings>` selects a sidebar section, `-detail <itemId>` pushes an item's detail screen, `-server <address>` sets the Loom address (an unroutable address simulates offline), `-download <itemId>` starts a download, `-autochain` plays the next episode automatically when the end-of-playback overlay would offer it, and `-landscape` narrows supported orientations to landscape (headless simulators cannot be rotated; alternatively, open the stable Xcode's Simulator.app on the booted device and use Device > Rotate).
 
 ## Project
 
@@ -46,6 +46,12 @@ Takeup should feel closer to Apple TV than to the typical black media-center int
 - When troubleshooting, gather evidence and test rather than guessing.
 - Add focused tests for new behavior and regressions.
 - Follow established Swift/SwiftUI and project conventions. Do not add libraries, frameworks, or architectural layers without a concrete need.
+
+## Design system
+
+The visual language lives in `Takeup/Sources/UI/Theme/`: the palette and genre jewel table (`Palette.swift`), SF type scale and the uppercase tracked label voice (`Typography.swift`), the gauze/dye-bath/house-lights/three-threads/shadow-weave light treatments (`Backgrounds.swift`), the 4-degree `BiasCutShape` and logo lane (`BiasCut.swift`), artwork-seeded woven accents (`Woven.swift`), and shared components — selvedge, thread progress, badges, states (`Components.swift`). Token values mirror the Android app's `ui/theme`; change them in both repos together.
+
+Known iOS 26 beta quirk: pushed `NavigationStack` destinations receive an unspecified width proposal and balloon to their ideal width. The root shell measures the pane into `\.paneWidth` and pushable screens call `.paneConstrained()`; new pushable screens must do the same.
 
 ## Build
 

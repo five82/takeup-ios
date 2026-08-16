@@ -1,5 +1,7 @@
 import SwiftUI
 
+/// Search under ember house lights. Mixed-kind results read as rows: a small
+/// poster, the title, its context line, and a kind tag.
 struct SearchView: View {
     @Environment(AppEnvironment.self) private var appEnvironment
     @State private var query = ""
@@ -8,40 +10,39 @@ struct SearchView: View {
     @State private var searched = false
 
     var body: some View {
-        ScrollView {
-            if fuzzy && !results.isEmpty {
-                Text("Showing close matches")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal)
-            }
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 160), spacing: 16)], spacing: 24) {
-                ForEach(results) { item in
-                    NavigationLink(value: item) {
-                        VStack(alignment: .leading, spacing: 6) {
-                            PosterCell(item: item)
-                            if let series = item.seriesTitle {
-                                Text(series)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
-                            }
-                        }
+        ZStack {
+            HouseLights(thread: .ember)
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    if fuzzy && !results.isEmpty {
+                        Text("Closest matches")
+                            .font(.labelLarge)
+                            .foregroundStyle(Color.muted)
+                            .padding(.horizontal, 20)
+                            .padding(.top, 12)
                     }
-                    .buttonStyle(.plain)
+                    ForEach(results) { item in
+                        NavigationLink(value: item) {
+                            resultRow(item)
+                        }
+                        .buttonStyle(.plain)
+                        .hoverEffect(.highlight)
+                    }
                 }
+                .padding(.vertical, 8)
             }
-            .padding()
         }
+        .background(Color.stage)
         .navigationTitle("Search")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(.hidden, for: .navigationBar)
         .navigationDestination(for: Item.self) { item in
             ItemDetailView(itemId: item.id, fallbackTitle: item.title)
         }
-        .searchable(text: $query, prompt: "Titles, episodes, cast, crew")
+        .searchable(text: $query, prompt: "Titles and people")
         .overlay {
             if searched && results.isEmpty && !query.isEmpty {
-                ContentUnavailableView.search(text: query)
+                EmptyState(message: "Nothing in the library matches \"\(query)\".")
             }
         }
         .task(id: query) {
@@ -49,6 +50,45 @@ struct SearchView: View {
             try? await Task.sleep(for: .milliseconds(300))
             await search()
         }
+    }
+
+    private func resultRow(_ item: Item) -> some View {
+        HStack(spacing: 14) {
+            ZStack {
+                Color.surface1
+                if let url = appEnvironment.client?.imageURL(id: item.posterImageId, tag: item.posterImageTag, width: 240) {
+                    CachedImage(url: url, contentMode: .fill)
+                }
+            }
+            .frame(width: 52, height: 78)
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(item.title)
+                    .font(.titleMedium)
+                    .foregroundStyle(Color.ink)
+                    .lineLimit(1)
+                if let context = contextLine(item) {
+                    Text(context)
+                        .font(.bodySmall)
+                        .foregroundStyle(Color.muted)
+                        .lineLimit(1)
+                }
+            }
+            Spacer(minLength: 8)
+            KindTag(kind: item.kind)
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 8)
+        .contentShape(Rectangle())
+    }
+
+    private func contextLine(_ item: Item) -> String? {
+        if item.kind == "episode" {
+            return [item.seriesTitle, episodeLabel(item)].compactMap { $0 }.joined(separator: " · ")
+        }
+        if let year = item.year, year > 0 { return String(year) }
+        return nil
     }
 
     private func search() async {
