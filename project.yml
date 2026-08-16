@@ -10,6 +10,16 @@ packages:
     url: https://github.com/mpvkit/MPVKit.git
     from: "0.41.0"
 
+schemes:
+  Takeup:
+    build:
+      targets:
+        Takeup: all
+    run:
+      config: Debug
+      # MoltenVK HDR passthrough trips Metal API validation (MoltenVK#2226).
+      metalAPIValidation: false
+
 targets:
   Takeup:
     type: application

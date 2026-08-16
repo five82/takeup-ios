@@ -88,6 +88,10 @@ final class MPVPlayerController: UIViewController {
         checkError(mpv_set_option_string(mpv, "gpu-api", "vulkan"))
         checkError(mpv_set_option_string(mpv, "gpu-context", "moltenvk"))
         checkError(mpv_set_option_string(mpv, "hwdec", "videotoolbox"))
+        // HDR passthrough: mpv signals the video's color space to the Metal
+        // layer, which activates the screen's EDR mode (see MetalLayer).
+        // Must be set before init; it can't be toggled at runtime.
+        checkError(mpv_set_option_string(mpv, "target-colorspace-hint", "yes"))
         checkError(mpv_set_option_string(mpv, "video-rotate", "no"))
         checkError(mpv_set_option_string(mpv, "keep-open", "yes"))
         checkError(mpv_set_option_string(mpv, "subs-match-os-language", "yes"))
@@ -147,8 +151,20 @@ final class MPVPlayerController: UIViewController {
         mpv_set_property_string(mpv, "sid", id.map(String.init) ?? "no")
     }
 
+    /// Tears down mpv synchronously enough to be safe: the wakeup callback is
+    /// detached first so it can never fire into a deallocated controller, then
+    /// the handle is destroyed on the event queue after any in-flight drain.
     func shutdown() {
-        command("quit")
+        guard let handle = mpv else { return }
+        mpv = nil
+        mpv_set_wakeup_callback(handle, nil, nil)
+        eventQueue.async {
+            mpv_terminate_destroy(handle)
+        }
+    }
+
+    deinit {
+        shutdown()
     }
 
     // MARK: - Property helpers
@@ -190,9 +206,11 @@ final class MPVPlayerController: UIViewController {
 
     private func readEvents() {
         eventQueue.async { [weak self] in
-            guard let self else { return }
+            // Capture the handle once: shutdown() enqueues mpv_terminate_destroy
+            // on this same serial queue, so it stays valid for the whole drain.
+            guard let self, let handle = self.mpv else { return }
             while self.mpv != nil {
-                guard let event = mpv_wait_event(self.mpv, 0), event.pointee.event_id != MPV_EVENT_NONE else {
+                guard let event = mpv_wait_event(handle, 0), event.pointee.event_id != MPV_EVENT_NONE else {
                     break
                 }
                 switch event.pointee.event_id {
@@ -201,8 +219,11 @@ final class MPVPlayerController: UIViewController {
                 case MPV_EVENT_FILE_LOADED:
                     self.publishTracks()
                 case MPV_EVENT_SHUTDOWN:
-                    mpv_terminate_destroy(self.mpv)
-                    self.mpv = nil
+                    if let handle = self.mpv {
+                        self.mpv = nil
+                        mpv_set_wakeup_callback(handle, nil, nil)
+                        mpv_terminate_destroy(handle)
+                    }
                 case MPV_EVENT_LOG_MESSAGE:
                     if let message = UnsafeMutablePointer<mpv_event_log_message>(OpaquePointer(event.pointee.data)) {
                         print("[mpv \(String(cString: message.pointee.level!))] \(String(cString: message.pointee.text!))", terminator: "")

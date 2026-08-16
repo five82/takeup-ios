@@ -49,9 +49,16 @@ final class PlayerModel {
 
     func applyTracks(_ tracks: [MPVTrack]) {
         audioTracks = tracks.filter { $0.type == "audio" }
-        subtitleTracks = tracks.filter { $0.type == "sub" }
+        // SRT only, mirroring the Android app; image subs (PGS) are hidden.
+        subtitleTracks = tracks.filter { $0.type == "sub" && $0.codec == "subrip" }
         selectedAudioId = audioTracks.first { $0.selected == true }?.id
-        selectedSubtitleId = subtitleTracks.first { $0.selected == true }?.id
+        let selectedSub = tracks.first { $0.type == "sub" && $0.selected == true }
+        if let selectedSub, selectedSub.codec != "subrip" {
+            // mpv auto-picked an image-based track; turn it off.
+            selectSubtitle(nil)
+        } else {
+            selectedSubtitleId = selectedSub?.id
+        }
     }
 
     func selectAudio(_ id: Int) {
