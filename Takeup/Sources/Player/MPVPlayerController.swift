@@ -111,8 +111,12 @@ final class MPVPlayerController: UIViewController {
         checkError(mpv_set_option_string(mpv, "target-colorspace-hint", "yes"))
         checkError(mpv_set_option_string(mpv, "video-rotate", "no"))
         checkError(mpv_set_option_string(mpv, "keep-open", "yes"))
-        checkError(mpv_set_option_string(mpv, "subs-match-os-language", "yes"))
-        checkError(mpv_set_option_string(mpv, "subs-fallback", "yes"))
+        // Honor the container's default flag only, mirroring the Android app
+        // (ExoPlayer with no preferred text language): no OS-language
+        // matching, and fall back only to a stream marked default. Forced
+        // subs matching the audio language still auto-select.
+        checkError(mpv_set_option_string(mpv, "subs-match-os-language", "no"))
+        checkError(mpv_set_option_string(mpv, "subs-fallback", "default"))
 
         checkError(mpv_initialize(mpv))
 
