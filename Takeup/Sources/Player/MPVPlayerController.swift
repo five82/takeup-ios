@@ -54,7 +54,7 @@ final class MPVPlayerController: UIViewController {
         super.viewDidLoad()
 
         view.backgroundColor = .black
-        metalLayer.frame = view.frame
+        metalLayer.frame = view.bounds
         metalLayer.contentsScale = view.window?.screen.nativeScale ?? UIScreen.main.nativeScale
         metalLayer.framebufferOnly = true
         metalLayer.backgroundColor = UIColor.black.cgColor
@@ -66,9 +66,73 @@ final class MPVPlayerController: UIViewController {
         }
     }
 
+    /// MPVKit's Metal/MoltenVK context has no live-resize support (MPVKit
+    /// issue #3): no VOCTRL handling, and reconfig-based nudges reapply the
+    /// stale surface size no matter when they run. The only reliable path is
+    /// rebuilding the player at the new size, resuming position, pause
+    /// state, and track selections. Costs a brief blink after rotating.
+    @objc private func refreshRenderSize() {
+        guard mpv != nil, let playURL else { return }
+        let resumeSeconds = getDouble("time-pos")
+        let wasPaused = getFlag("pause")
+        let audioTrack = getString("aid")
+        let subtitleTrack = getString("sid")
+
+        shutdown()
+        metalLayer.removeFromSuperlayer()
+        metalLayer = MetalLayer()
+        metalLayer.frame = view.bounds
+        metalLayer.contentsScale = view.window?.screen.nativeScale ?? UIScreen.main.nativeScale
+        metalLayer.framebufferOnly = true
+        metalLayer.backgroundColor = UIColor.black.cgColor
+        view.layer.addSublayer(metalLayer)
+
+        setupMpv()
+        loadFile(playURL, startSeconds: max(0, resumeSeconds))
+        if wasPaused {
+            setFlag("pause", true)
+        }
+        if let audioTrack {
+            mpv_set_property_string(mpv, "aid", audioTrack)
+        }
+        if let subtitleTrack {
+            mpv_set_property_string(mpv, "sid", subtitleTrack)
+        }
+    }
+
+    private var lastLayoutSize: CGSize = .zero
+
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        metalLayer.frame = view.frame
+        // bounds, not frame: frame is expressed in the rotating superview's
+        // coordinate space, which leaves the layer with stale geometry after
+        // an orientation change (picture cut off / off-center). Disable the
+        // implicit CALayer animation so the resize tracks rotation cleanly.
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        metalLayer.frame = view.bounds
+        // MoltenVK sets drawableSize explicitly, which stops it tracking the
+        // layer's bounds — without this the drawable keeps its pre-rotation
+        // size and mpv renders the picture off-center.
+        let scale = metalLayer.contentsScale
+        metalLayer.drawableSize = CGSize(
+            width: view.bounds.width * scale,
+            height: view.bounds.height * scale
+        )
+        CATransaction.commit()
+
+        // Trigger the reconfig off layout (viewWillTransition is not
+        // reliably forwarded to representable-hosted children), debounced
+        // until the transition settles. Also covers windowed resizes.
+        let size = view.bounds.size
+        if lastLayoutSize != .zero, lastLayoutSize != size {
+            NSObject.cancelPreviousPerformRequests(withTarget: self, selector: #selector(refreshRenderSize), object: nil)
+            // A full second: firing inside the rotation animation lets the
+            // swapchain negotiate against MoltenVK's still-stale surface
+            // extent, which re-applies the old size.
+            perform(#selector(refreshRenderSize), with: nil, afterDelay: 1.0)
+        }
+        lastLayoutSize = size
     }
 
     private func setupMpv() {
@@ -169,6 +233,13 @@ final class MPVPlayerController: UIViewController {
 
     // MARK: - Property helpers
 
+    private func getDouble(_ name: String) -> Double {
+        guard mpv != nil else { return 0 }
+        var data = Double()
+        mpv_get_property(mpv, name, MPV_FORMAT_DOUBLE, &data)
+        return data
+    }
+
     private func getString(_ name: String) -> String? {
         guard mpv != nil else { return nil }
         guard let cString = mpv_get_property_string(mpv, name) else { return nil }
@@ -199,7 +270,7 @@ final class MPVPlayerController: UIViewController {
                 free(UnsafeMutablePointer(mutating: pointer!))
             }
         }
-        checkError(mpv_command(mpv, &cargs))
+        checkError(mpv_command(mpv, &cargs), context: ([command] + args.compactMap { $0 }).joined(separator: " "))
     }
 
     // MARK: - Events
@@ -276,9 +347,9 @@ final class MPVPlayerController: UIViewController {
         }
     }
 
-    private func checkError(_ status: CInt) {
+    private func checkError(_ status: CInt, context: String = "") {
         if status < 0 {
-            print("mpv API error: \(String(cString: mpv_error_string(status)))")
+            print("mpv API error\(context.isEmpty ? "" : " (\(context))"): \(String(cString: mpv_error_string(status)))")
         }
     }
 }
