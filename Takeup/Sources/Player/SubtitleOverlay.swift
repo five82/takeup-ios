@@ -29,9 +29,42 @@ func subtitleVideoRect(surface: CGSize, aspect: Double?) -> CGRect {
     )
 }
 
-/// Draws the current cues in the app's one subtitle voice: white SF Medium in
-/// a rounded, padded black box. See SubtitleCue for why libass does not draw
-/// these itself.
+/// The bundled Lato faces used for cue text: medium as the base weight, bold
+/// for `{\b}` runs, and italic variants of both. Falls back to the SF system
+/// font if a face fails to resolve (defensive only -- the four TTFs are
+/// registered via UIAppFonts and should always be present).
+private struct SubtitleFonts {
+    let medium: UIFont
+    let mediumItalic: UIFont
+    let bold: UIFont
+    let boldItalic: UIFont
+
+    init(size: CGFloat) {
+        medium = UIFont(name: "Lato-Medium", size: size) ?? .systemFont(ofSize: size, weight: .medium)
+        mediumItalic = UIFont(name: "Lato-MediumItalic", size: size) ?? .italicSystemFont(ofSize: size)
+        bold = UIFont(name: "Lato-Bold", size: size) ?? .systemFont(ofSize: size, weight: .bold)
+        boldItalic = UIFont(name: "Lato-BoldItalic", size: size) ?? {
+            let systemBold = UIFont.systemFont(ofSize: size, weight: .bold)
+            let italicDescriptor = systemBold.fontDescriptor.withSymbolicTraits(
+                systemBold.fontDescriptor.symbolicTraits.union(.traitItalic)
+            )
+            return italicDescriptor.map { UIFont(descriptor: $0, size: size) } ?? systemBold
+        }()
+    }
+
+    func font(bold: Bool, italic: Bool) -> UIFont {
+        switch (bold, italic) {
+        case (true, true): return boldItalic
+        case (true, false): return self.bold
+        case (false, true): return mediumItalic
+        case (false, false): return medium
+        }
+    }
+}
+
+/// Draws the current cues in the app's one subtitle voice: white Lato Medium
+/// in a rounded, padded black box. See SubtitleCue for why libass does not
+/// draw these itself.
 struct SubtitleOverlay: View {
     var cues: [SubtitleCue]
     /// Display aspect of the picture; nil when it is unknown or fills the
@@ -91,11 +124,12 @@ struct SubtitleOverlay: View {
     }
 
     private func box(_ cue: SubtitleCue, fontSize: CGFloat, maxWidth: CGFloat) -> some View {
-        let spacing = lineSpacing(fontSize: fontSize)
+        let fonts = SubtitleFonts(size: fontSize)
+        let spacing = lineSpacing(fonts: fonts, fontSize: fontSize)
         let cap = max(maxWidth - 28, 1)
         return VStack(spacing: spacing) {
             ForEach(Array(cue.lines.enumerated()), id: \.offset) { _, line in
-                Text(attributed(line, fontSize: fontSize))
+                Text(attributed(line, fonts: fonts))
                     .lineSpacing(spacing)
                     .frame(maxWidth: cap)
                     // fixedSize hands the frame the text's own ideal width,
@@ -105,7 +139,7 @@ struct SubtitleOverlay: View {
                     // out at full, unwrapped width and overflows it -- only
                     // apply fixedSize when the line actually fits under the
                     // cap; otherwise let it wrap within the cap.
-                    .fixedSize(horizontal: singleLineWidth(line, fontSize: fontSize) <= cap, vertical: false)
+                    .fixedSize(horizontal: singleLineWidth(line, fonts: fonts) <= cap, vertical: false)
             }
         }
         .foregroundStyle(.white)
@@ -119,23 +153,15 @@ struct SubtitleOverlay: View {
     }
 
     /// The line's own single-line width, measured with the same per-run fonts
-    /// `attributed(_:fontSize:)` picks (built directly as an NSAttributedString
-    /// rather than bridged from the SwiftUI one, whose Font attribute does not
-    /// reliably convert to a measurable UIFont). Used to decide whether
-    /// fixedSize is safe: a line under the cap should hug it, but one over the
-    /// cap must be allowed to wrap instead of overflowing.
-    private func singleLineWidth(_ line: [SubtitleCue.Run], fontSize: CGFloat) -> CGFloat {
+    /// `attributed(_:fonts:fontSize:)` picks (built directly as an
+    /// NSAttributedString rather than bridged from the SwiftUI one, whose Font
+    /// attribute does not reliably convert to a measurable UIFont). Used to
+    /// decide whether fixedSize is safe: a line under the cap should hug it,
+    /// but one over the cap must be allowed to wrap instead of overflowing.
+    private func singleLineWidth(_ line: [SubtitleCue.Run], fonts: SubtitleFonts) -> CGFloat {
         let result = NSMutableAttributedString()
         for run in line {
-            var font = UIFont.systemFont(ofSize: fontSize, weight: run.bold ? .bold : .medium)
-            if run.italic {
-                let italicDescriptor = font.fontDescriptor.withSymbolicTraits(
-                    font.fontDescriptor.symbolicTraits.union(.traitItalic)
-                )
-                if let italicDescriptor {
-                    font = UIFont(descriptor: italicDescriptor, size: fontSize)
-                }
-            }
+            let font = fonts.font(bold: run.bold, italic: run.italic)
             result.append(NSAttributedString(string: run.text, attributes: [.font: font]))
         }
         let bounds = result.boundingRect(
@@ -146,13 +172,12 @@ struct SubtitleOverlay: View {
         return bounds.width.rounded(.up)
     }
 
-    private func attributed(_ line: [SubtitleCue.Run], fontSize: CGFloat) -> AttributedString {
+    private func attributed(_ line: [SubtitleCue.Run], fonts: SubtitleFonts) -> AttributedString {
         var result = AttributedString()
         for run in line {
             var piece = AttributedString(run.text)
-            var font = Font.system(size: fontSize, weight: run.bold ? .bold : .medium)
-            if run.italic { font = font.italic() }
-            piece.font = font
+            let uiFont = fonts.font(bold: run.bold, italic: run.italic)
+            piece.font = Font(uiFont)
             if run.underline { piece.underlineStyle = .single }
             result += piece
         }
@@ -161,9 +186,8 @@ struct SubtitleOverlay: View {
 
     /// SwiftUI's lineSpacing is a gap between lines, not a line height, so back
     /// the font's own height out of the 1.3x the design calls for.
-    private func lineSpacing(fontSize: CGFloat) -> CGFloat {
-        let natural = UIFont.systemFont(ofSize: fontSize, weight: .medium).lineHeight
-        return max(0, fontSize * 1.3 - natural)
+    private func lineSpacing(fonts: SubtitleFonts, fontSize: CGFloat) -> CGFloat {
+        return max(0, fontSize * 1.3 - fonts.medium.lineHeight)
     }
 
     private func alignment(for cue: SubtitleCue) -> Alignment {

@@ -31,6 +31,13 @@
 	</array>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Takeup connects to your Loom media server on the local network.</string>
+	<key>UIAppFonts</key>
+	<array>
+		<string>Lato-Medium.ttf</string>
+		<string>Lato-MediumItalic.ttf</string>
+		<string>Lato-Bold.ttf</string>
+		<string>Lato-BoldItalic.ttf</string>
+	</array>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>UISupportedInterfaceOrientations</key>

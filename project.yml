@@ -62,6 +62,11 @@ targets:
         NSLocalNetworkUsageDescription: Takeup connects to your Loom media server on the local network.
         NSBonjourServices:
           - _loom._tcp
+        UIAppFonts:
+          - Lato-Medium.ttf
+          - Lato-MediumItalic.ttf
+          - Lato-Bold.ttf
+          - Lato-BoldItalic.ttf
   TakeupTests:
     type: bundle.unit-test
     platform: iOS
