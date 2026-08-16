@@ -46,6 +46,17 @@ struct RootView: View {
     @State private var autoplayItem: Item?
 
     var body: some View {
+        Group {
+            if appEnvironment.client == nil {
+                OnboardingView()
+            } else {
+                mainSplitView
+            }
+        }
+        .task { await handleAutoplayArgument() }
+    }
+
+    private var mainSplitView: some View {
         NavigationSplitView {
             List(SidebarSection.allCases, selection: $selection) { section in
                 Label(section.title, systemImage: section.icon)
@@ -74,13 +85,16 @@ struct RootView: View {
         .fullScreenCover(item: $autoplayItem) { playable in
             PlayerScreen(item: playable)
         }
-        .task { await handleAutoplayArgument() }
     }
 
     /// Debug hooks for CLI-driven simulator runs: `-autoplay <itemId>` jumps
     /// straight into playback, `-tab <section>` selects a sidebar section.
     private func handleAutoplayArgument() async {
         let arguments = ProcessInfo.processInfo.arguments
+        if let flagIndex = arguments.firstIndex(of: "-server"),
+           arguments.indices.contains(flagIndex + 1) {
+            appEnvironment.serverURLString = arguments[flagIndex + 1]
+        }
         if let flagIndex = arguments.firstIndex(of: "-tab"),
            arguments.indices.contains(flagIndex + 1),
            let section = SidebarSection(rawValue: arguments[flagIndex + 1]) {

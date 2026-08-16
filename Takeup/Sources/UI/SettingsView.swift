@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @Environment(AppEnvironment.self) private var appEnvironment
+    @State private var discovery = LoomDiscovery()
     @State private var status: String?
 
     var body: some View {
@@ -20,8 +21,41 @@ struct SettingsView: View {
                         .foregroundStyle(status.hasPrefix("Connected") ? .green : .red)
                 }
             }
+            Section("Discovered on Network") {
+                if discovery.servers.isEmpty {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                        Text("Looking for Loom…")
+                            .foregroundStyle(.secondary)
+                    }
+                } else {
+                    ForEach(discovery.servers) { server in
+                        Button {
+                            appEnvironment.serverURLString = server.urlString
+                            status = nil
+                        } label: {
+                            HStack {
+                                VStack(alignment: .leading) {
+                                    Text(server.name)
+                                    Text(server.urlString)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                if appEnvironment.serverURLString == server.urlString {
+                                    Image(systemName: "checkmark")
+                                        .foregroundStyle(.tint)
+                                }
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
         }
         .navigationTitle("Settings")
+        .onAppear { discovery.start() }
+        .onDisappear { discovery.stop() }
     }
 
     private func testConnection() async {

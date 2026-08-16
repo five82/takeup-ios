@@ -18,7 +18,11 @@ final class AppEnvironment {
     }
 
     var serverURL: URL? {
-        var raw = serverURLString.trimmingCharacters(in: .whitespacesAndNewlines)
+        Self.normalize(serverURLString)
+    }
+
+    static func normalize(_ address: String) -> URL? {
+        var raw = address.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !raw.isEmpty else { return nil }
         if !raw.contains("://") { raw = "http://" + raw }
         guard var components = URLComponents(string: raw) else { return nil }
