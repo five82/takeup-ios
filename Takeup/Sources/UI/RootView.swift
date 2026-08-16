@@ -1,7 +1,7 @@
 import SwiftUI
 
 enum SidebarSection: String, CaseIterable, Identifiable {
-    case home, movies, shorts, tv, browse, search, settings
+    case home, movies, shorts, tv, browse, search, downloads, settings
 
     var id: String { rawValue }
 
@@ -13,6 +13,7 @@ enum SidebarSection: String, CaseIterable, Identifiable {
         case .tv: "TV"
         case .browse: "Browse"
         case .search: "Search"
+        case .downloads: "Downloads"
         case .settings: "Settings"
         }
     }
@@ -25,6 +26,7 @@ enum SidebarSection: String, CaseIterable, Identifiable {
         case .tv: "tv"
         case .browse: "square.grid.2x2"
         case .search: "magnifyingglass"
+        case .downloads: "arrow.down.circle"
         case .settings: "gearshape"
         }
     }
@@ -35,7 +37,7 @@ enum SidebarSection: String, CaseIterable, Identifiable {
         case .movies: "movies"
         case .shorts: "shorts"
         case .tv: "tv"
-        case .home, .browse, .search, .settings: nil
+        case .home, .browse, .search, .downloads, .settings: nil
         }
     }
 }
@@ -72,6 +74,8 @@ struct RootView: View {
                     BrowseView()
                 case .search:
                     SearchView()
+                case .downloads:
+                    DownloadsView()
                 case .settings:
                     SettingsView()
                 case let section:
@@ -100,11 +104,24 @@ struct RootView: View {
            let section = SidebarSection(rawValue: arguments[flagIndex + 1]) {
             selection = section
         }
+        if let flagIndex = arguments.firstIndex(of: "-download"),
+           arguments.indices.contains(flagIndex + 1),
+           let itemId = Int64(arguments[flagIndex + 1]),
+           let client = appEnvironment.client,
+           let item = try? await client.item(id: itemId) {
+            await DownloadManager.shared.start(item: item, client: client)
+        }
         guard let flagIndex = arguments.firstIndex(of: "-autoplay"),
               arguments.indices.contains(flagIndex + 1),
-              let itemId = Int64(arguments[flagIndex + 1]),
-              let client = appEnvironment.client
+              let itemId = Int64(arguments[flagIndex + 1])
         else { return }
-        autoplayItem = try? await client.item(id: itemId)
+        var resolved: Item?
+        if let client = appEnvironment.client {
+            resolved = try? await client.item(id: itemId)
+        }
+        if resolved == nil {
+            resolved = DownloadManager.shared.entry(for: itemId)?.item
+        }
+        autoplayItem = resolved
     }
 }

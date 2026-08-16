@@ -79,10 +79,12 @@ struct PlayerScreen: View {
     let item: Item
 
     @Environment(AppEnvironment.self) private var appEnvironment
+    @Environment(DownloadManager.self) private var downloads
     @Environment(\.dismiss) private var dismiss
 
     @State private var model = PlayerModel()
     @State private var playbackURL: URL?
+    @State private var startSeconds: Double = 0
     @State private var chapters: [Chapter] = []
     @State private var loadError: String?
     @State private var controlsVisible = true
@@ -96,7 +98,7 @@ struct PlayerScreen: View {
             if let playbackURL {
                 MPVPlayerView(
                     url: playbackURL,
-                    startSeconds: Double(item.progress?.resumePositionMs ?? 0) / 1000,
+                    startSeconds: startSeconds,
                     model: model
                 )
                 .ignoresSafeArea()
@@ -267,10 +269,36 @@ struct PlayerScreen: View {
     }
 
     private func start() async {
-        guard let client = appEnvironment.client else { return }
+        // Downloaded items play from disk even when the server is reachable;
+        // the server (when up) still supplies the freshest resume position.
+        if let entry = downloads.entry(for: item.id) {
+            chapters = entry.item.media?.chapters ?? []
+            var resumeMs = item.progress?.resumePositionMs ?? entry.item.progress?.resumePositionMs ?? 0
+            // Refresh resume from the server, but never hold up local playback
+            // for more than a moment when the server is unreachable.
+            if let client = appEnvironment.client {
+                let refresh = Task { try? await client.item(id: item.id) }
+                let watchdog = Task {
+                    try? await Task.sleep(for: .seconds(3))
+                    refresh.cancel()
+                }
+                if let fresh = await refresh.value {
+                    resumeMs = fresh.progress?.resumePositionMs ?? 0
+                }
+                watchdog.cancel()
+            }
+            startSeconds = Double(resumeMs) / 1000
+            playbackURL = downloads.localURL(for: entry)
+            return
+        }
+        guard let client = appEnvironment.client else {
+            loadError = "No Loom server configured."
+            return
+        }
         do {
             let playback = try await client.playback(id: item.id)
             chapters = playback.media.chapters ?? []
+            startSeconds = Double(item.progress?.resumePositionMs ?? 0) / 1000
             playbackURL = client.streamURL(for: playback)
         } catch {
             loadError = error.localizedDescription
@@ -285,12 +313,16 @@ struct PlayerScreen: View {
     }
 
     private func reportProgress() async {
-        guard let client = appEnvironment.client, model.timeSeconds > 0, model.durationSeconds > 0 else { return }
-        try? await client.reportProgress(
-            id: item.id,
-            positionMs: Int64(model.timeSeconds * 1000),
-            durationMs: Int64(model.durationSeconds * 1000)
-        )
+        guard model.timeSeconds > 0, model.durationSeconds > 0 else { return }
+        let positionMs = Int64(model.timeSeconds * 1000)
+        let durationMs = Int64(model.durationSeconds * 1000)
+        do {
+            guard let client = appEnvironment.client else { throw URLError(.cannotConnectToHost) }
+            try await client.reportProgress(id: item.id, positionMs: positionMs, durationMs: durationMs)
+        } catch {
+            // Server unreachable: keep the latest position for a later flush.
+            downloads.queueProgress(itemId: item.id, positionMs: positionMs, durationMs: durationMs)
+        }
     }
 
     private func formatTime(_ seconds: Double) -> String {

@@ -7,6 +7,7 @@ struct ItemDetailView: View {
     let fallbackTitle: String
 
     @Environment(AppEnvironment.self) private var appEnvironment
+    @Environment(DownloadManager.self) private var downloads
     @State private var item: Item?
     @State private var childItems: [Item] = []
     @State private var loadError: String?
@@ -18,7 +19,10 @@ struct ItemDetailView: View {
                 VStack(alignment: .leading, spacing: 16) {
                     header(for: item)
                     if item.isPlayable {
-                        playButton(for: item)
+                        HStack(spacing: 12) {
+                            playButton(for: item)
+                            downloadButton(for: item)
+                        }
                     }
                     metadata(for: item)
                     if let overview = item.overview {
@@ -114,6 +118,44 @@ struct ItemDetailView: View {
             .padding(.vertical, 4)
         }
         .buttonStyle(.borderedProminent)
+    }
+
+    @ViewBuilder
+    private func downloadButton(for item: Item) -> some View {
+        if downloads.entry(for: item.id) != nil {
+            Menu {
+                Button(role: .destructive) {
+                    downloads.remove(item.id)
+                } label: {
+                    Label("Remove Download", systemImage: "trash")
+                }
+            } label: {
+                Label("Downloaded", systemImage: "checkmark.circle")
+                    .padding(.vertical, 4)
+            }
+            .buttonStyle(.bordered)
+        } else if let fraction = downloads.activeProgress[item.id] {
+            HStack(spacing: 8) {
+                ProgressView(value: fraction)
+                    .frame(width: 120)
+                Button {
+                    downloads.cancel(item.id)
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+        } else {
+            Button {
+                guard let client = appEnvironment.client else { return }
+                Task { await downloads.start(item: item, client: client) }
+            } label: {
+                Label("Download", systemImage: "arrow.down.circle")
+                    .padding(.vertical, 4)
+            }
+            .buttonStyle(.bordered)
+        }
     }
 
     @ViewBuilder

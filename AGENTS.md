@@ -8,7 +8,7 @@ This file provides guidance when working with code in this repository.
 - The `.xcodeproj` is generated and gitignored. Run `xcodegen generate` after adding, removing, or renaming files, or after editing `project.yml`.
 - Build and test on the iOS simulator by default. Use the Xcode beta toolchain (`DEVELOPER_DIR=/Applications/Xcode-beta.app`) so the simulator matches the physical iPad's OS.
 - Unlike the Android emulator, video playback (including MKV via MPVKit) works in the simulator. HDR/EDR output, hardware decode, and playback smoothness must be verified on the physical iPad.
-- The app has debug launch arguments for CLI-driven checks: `-autoplay <itemId>` jumps straight into playback, `-tab <home|movies|shorts|tv|browse|search|settings>` selects a sidebar section.
+- The app has debug launch arguments for CLI-driven checks: `-autoplay <itemId>` jumps straight into playback, `-tab <home|movies|shorts|tv|browse|search|downloads|settings>` selects a sidebar section, `-server <address>` sets the Loom address (an unroutable address simulates offline), and `-download <itemId>` starts a download.
 
 ## Project
 

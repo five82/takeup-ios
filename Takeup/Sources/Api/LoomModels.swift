@@ -4,7 +4,7 @@ import Foundation
 // The server omits empty/zero fields, so everything but identity is optional.
 // Decoded with .convertFromSnakeCase.
 
-struct Item: Decodable, Identifiable, Hashable {
+struct Item: Codable, Identifiable, Hashable {
     let id: Int64
     let libraryId: Int64?
     let parentId: Int64?
@@ -47,37 +47,37 @@ struct Item: Decodable, Identifiable, Hashable {
     var isPlayable: Bool { kind == "movie" || kind == "episode" }
 }
 
-struct ItemsPage: Decodable {
+struct ItemsPage: Codable {
     let items: [Item]
     let limit: Int?
     let offset: Int?
 }
 
-struct SearchResponse: Decodable {
+struct SearchResponse: Codable {
     let items: [Item]
     let fuzzy: Bool?
 }
 
-struct FeaturedPick: Decodable {
+struct FeaturedPick: Codable {
     let item: Item
     let startsAt: String?
     let endsAt: String?
 }
 
-struct Genre: Decodable, Identifiable, Hashable {
+struct Genre: Codable, Identifiable, Hashable {
     let id: Int64
     let name: String
     let itemCount: Int?
 }
 
-struct Credit: Decodable, Hashable {
+struct Credit: Codable, Hashable {
     let personId: Int64
     let name: String
     let role: String
     let character: String?
 }
 
-struct MediaFile: Decodable, Hashable {
+struct MediaFile: Codable, Hashable {
     let id: Int64
     let itemId: Int64?
     let filename: String?
@@ -90,7 +90,7 @@ struct MediaFile: Decodable, Hashable {
     let chapters: [Chapter]?
 }
 
-struct Stream: Decodable, Hashable {
+struct Stream: Codable, Hashable {
     let index: Int
     let kind: String
     let codec: String?
@@ -106,13 +106,13 @@ struct Stream: Decodable, Hashable {
     let isForced: Bool?
 }
 
-struct Chapter: Decodable, Hashable {
+struct Chapter: Codable, Hashable {
     let index: Int
     let startMs: Int64?
     let title: String?
 }
 
-struct Progress: Decodable, Hashable {
+struct Progress: Codable, Hashable {
     let positionMs: Int64?
     let durationMs: Int64?
     let played: Bool?
@@ -120,14 +120,14 @@ struct Progress: Decodable, Hashable {
     let updatedAt: String?
 }
 
-struct Library: Decodable, Identifiable, Hashable {
+struct Library: Codable, Identifiable, Hashable {
     let id: Int64
     let kind: String
     let name: String
     let itemCount: Int64?
 }
 
-struct MediaCollection: Decodable, Identifiable, Hashable {
+struct MediaCollection: Codable, Identifiable, Hashable {
     let slug: String
     let title: String
     let items: [Item]
@@ -135,13 +135,13 @@ struct MediaCollection: Decodable, Identifiable, Hashable {
     var id: String { slug }
 }
 
-struct PlaybackInfo: Decodable {
+struct PlaybackInfo: Codable {
     let itemId: Int64
     let media: MediaFile
     let streamUrl: String
 }
 
-struct ScanStatus: Decodable {
+struct ScanStatus: Codable {
     let running: Bool?
     let library: String?
     let startedAt: String?
