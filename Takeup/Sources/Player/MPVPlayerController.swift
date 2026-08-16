@@ -49,6 +49,9 @@ final class MPVPlayerController: UIViewController {
     private var mpv: OpaquePointer!
     private let eventQueue = DispatchQueue(label: "mpv.events", qos: .userInitiated)
     private var state = ObservedState()
+    /// Freeze-frame shown while the player rebuilds after a resize.
+    private let coverView = UIImageView()
+    private var awaitingFirstFrame = false
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -59,6 +62,11 @@ final class MPVPlayerController: UIViewController {
         metalLayer.framebufferOnly = true
         metalLayer.backgroundColor = UIColor.black.cgColor
         view.layer.addSublayer(metalLayer)
+
+        coverView.contentMode = .scaleAspectFit
+        coverView.backgroundColor = .black
+        coverView.isHidden = true
+        view.addSubview(coverView)
 
         setupMpv()
         if let playURL {
@@ -85,7 +93,8 @@ final class MPVPlayerController: UIViewController {
         metalLayer.contentsScale = view.window?.screen.nativeScale ?? UIScreen.main.nativeScale
         metalLayer.framebufferOnly = true
         metalLayer.backgroundColor = UIColor.black.cgColor
-        view.layer.addSublayer(metalLayer)
+        // Below the freeze-frame cover, so the rebuild happens behind it.
+        view.layer.insertSublayer(metalLayer, below: coverView.layer)
 
         setupMpv()
         loadFile(playURL, startSeconds: max(0, resumeSeconds))
@@ -97,6 +106,13 @@ final class MPVPlayerController: UIViewController {
         }
         if let subtitleTrack {
             mpv_set_property_string(mpv, "sid", subtitleTrack)
+        }
+
+        // Crossfade the freeze-frame away on the new player's first frame,
+        // with a deadline in case no frame arrives (e.g. load failure).
+        awaitingFirstFrame = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in
+            self?.hideRotationCover()
         }
     }
 
@@ -124,15 +140,44 @@ final class MPVPlayerController: UIViewController {
         // Trigger the reconfig off layout (viewWillTransition is not
         // reliably forwarded to representable-hosted children), debounced
         // until the transition settles. Also covers windowed resizes.
+        coverView.frame = view.bounds
+
         let size = view.bounds.size
         if lastLayoutSize != .zero, lastLayoutSize != size {
+            // Cover the stale-geometry picture with a freeze-frame of the
+            // current video, aspect-fit for the new size, until the rebuilt
+            // player delivers its first frame.
+            showRotationCover()
+            metalLayer.isHidden = true
             NSObject.cancelPreviousPerformRequests(withTarget: self, selector: #selector(refreshRenderSize), object: nil)
-            // A full second: firing inside the rotation animation lets the
-            // swapchain negotiate against MoltenVK's still-stale surface
-            // extent, which re-applies the old size.
-            perform(#selector(refreshRenderSize), with: nil, afterDelay: 1.0)
+            perform(#selector(refreshRenderSize), with: nil, afterDelay: 0.3)
         }
         lastLayoutSize = size
+    }
+
+    private func showRotationCover() {
+        guard mpv != nil, coverView.isHidden else { return }
+        let path = NSTemporaryDirectory() + "rotation-cover.jpg"
+        try? FileManager.default.removeItem(atPath: path)
+        command("screenshot-to-file", args: [path, "subtitles"])
+        if let image = UIImage(contentsOfFile: path) {
+            coverView.image = image
+        } else {
+            coverView.image = nil
+        }
+        coverView.alpha = 1
+        coverView.isHidden = false
+    }
+
+    private func hideRotationCover() {
+        guard !coverView.isHidden else { return }
+        UIView.animate(withDuration: 0.15) {
+            self.coverView.alpha = 0
+        } completion: { _ in
+            self.coverView.isHidden = true
+            self.coverView.alpha = 1
+            self.coverView.image = nil
+        }
     }
 
     private func setupMpv() {
@@ -158,6 +203,7 @@ final class MPVPlayerController: UIViewController {
         checkError(mpv_set_option_string(mpv, "target-colorspace-hint", "yes"))
         checkError(mpv_set_option_string(mpv, "video-rotate", "no"))
         checkError(mpv_set_option_string(mpv, "keep-open", "yes"))
+        checkError(mpv_set_option_string(mpv, "screenshot-format", "jpg"))
         checkError(mpv_set_option_string(mpv, "subs-match-os-language", "yes"))
         checkError(mpv_set_option_string(mpv, "subs-fallback", "yes"))
 
@@ -324,6 +370,12 @@ final class MPVPlayerController: UIViewController {
         case "time-pos":
             if let value = UnsafePointer<Double>(OpaquePointer(property.data))?.pointee {
                 state.timeSeconds = value
+                if awaitingFirstFrame {
+                    awaitingFirstFrame = false
+                    DispatchQueue.main.async { [weak self] in
+                        self?.hideRotationCover()
+                    }
+                }
             }
         case "duration":
             if let value = UnsafePointer<Double>(OpaquePointer(property.data))?.pointee {
