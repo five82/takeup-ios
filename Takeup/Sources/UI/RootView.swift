@@ -2,7 +2,7 @@ import SwiftUI
 import UIKit
 
 enum SidebarSection: String, CaseIterable, Identifiable {
-    case home, movies, shorts, tv, browse, search, downloads, settings
+    case home, movies, shorts, tv, collections, genres, search, downloads, settings
 
     var id: String { rawValue }
 
@@ -12,7 +12,8 @@ enum SidebarSection: String, CaseIterable, Identifiable {
         case .movies: "Movies"
         case .shorts: "Short Films"
         case .tv: "TV"
-        case .browse: "Browse"
+        case .collections: "Collections"
+        case .genres: "Genres"
         case .search: "Search"
         case .downloads: "Downloads"
         case .settings: "Settings"
@@ -25,7 +26,8 @@ enum SidebarSection: String, CaseIterable, Identifiable {
         case .movies: "film"
         case .shorts: "film.stack"
         case .tv: "tv"
-        case .browse: "square.grid.2x2"
+        case .collections: "square.stack"
+        case .genres: "theatermasks"
         case .search: "magnifyingglass"
         case .downloads: "arrow.down.circle"
         case .settings: "gearshape"
@@ -38,7 +40,7 @@ enum SidebarSection: String, CaseIterable, Identifiable {
         case .movies: "movies"
         case .shorts: "shorts"
         case .tv: "tv"
-        case .home, .browse, .search, .downloads, .settings: nil
+        case .home, .collections, .genres, .search, .downloads, .settings: nil
         }
     }
 
@@ -49,7 +51,9 @@ enum SidebarSection: String, CaseIterable, Identifiable {
         case .movies: .ember
         case .tv: .teal
         case .shorts: .amber
-        case .browse: .violet
+        // Collections and Genres are the old Browse rooms; both live under
+        // the selvedge's violet thread.
+        case .collections, .genres: .violet
         case .home, .search, .downloads, .settings: nil
         }
     }
@@ -109,8 +113,10 @@ struct RootView: View {
         switch selection {
         case .home:
             HomeView()
-        case .browse:
-            BrowseView()
+        case .collections:
+            CollectionsView()
+        case .genres:
+            GenresView()
         case .search:
             SearchView()
         case .downloads:
@@ -200,7 +206,7 @@ private struct SidebarView: View {
                 .padding(.top, 18)
                 .padding(.bottom, 22)
 
-                ForEach([SidebarSection.home, .movies, .tv, .shorts, .browse]) { section in
+                ForEach([SidebarSection.home, .movies, .tv, .shorts, .collections, .genres]) { section in
                     row(section)
                 }
 
@@ -221,9 +227,9 @@ private struct SidebarView: View {
             Rectangle().fill(Color.line).frame(width: 1).ignoresSafeArea()
         }
         .toolbar(.hidden, for: .navigationBar)
-        // Cmd-1...5 jump between the five browsing sections.
+        // Cmd-1...6 jump between the six browsing sections.
         .background {
-            ForEach(Array([SidebarSection.home, .movies, .tv, .shorts, .browse].enumerated()), id: \.element) { index, section in
+            ForEach(Array([SidebarSection.home, .movies, .tv, .shorts, .collections, .genres].enumerated()), id: \.element) { index, section in
                 Button("") { selection = section }
                     .keyboardShortcut(KeyEquivalent(Character(String(index + 1))), modifiers: .command)
                     .hidden()

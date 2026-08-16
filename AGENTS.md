@@ -8,7 +8,7 @@ This file provides guidance when working with code in this repository.
 - The `.xcodeproj` is generated and gitignored. Run `xcodegen generate` after adding, removing, or renaming files, or after editing `project.yml`.
 - Build and test on the iOS simulator by default. Use the Xcode beta toolchain (`DEVELOPER_DIR=/Applications/Xcode-beta.app`) so the simulator matches the physical iPad's OS.
 - Unlike the Android emulator, video playback (including MKV via MPVKit) works in the simulator. HDR/EDR output, hardware decode, and playback smoothness must be verified on the physical iPad.
-- The app has debug launch arguments for CLI-driven checks: `-autoplay <itemId>` jumps straight into playback, `-tab <home|movies|shorts|tv|browse|search|downloads|settings>` selects a sidebar section, `-detail <itemId>` pushes an item's detail screen (add `-person <name>` to also push the cast-card person search), `-server <address>` sets the Loom address (an unroutable address simulates offline), `-download <itemId>` starts a download, `-autochain` plays the next episode automatically when the end-of-playback overlay would offer it, and `-landscape` narrows supported orientations to landscape. In practice `-landscape` has not reliably rotated the headless simulator; rotate via Simulator.app instead (see the Simulator section).
+- The app has debug launch arguments for CLI-driven checks: `-autoplay <itemId>` jumps straight into playback, `-tab <home|movies|shorts|tv|collections|genres|search|downloads|settings>` selects a sidebar section, `-detail <itemId>` pushes an item's detail screen (add `-person <name>` to also push the cast-card person search), `-server <address>` sets the Loom address (an unroutable address simulates offline), `-download <itemId>` starts a download, `-autochain` plays the next episode automatically when the end-of-playback overlay would offer it, and `-landscape` narrows supported orientations to landscape. In practice `-landscape` has not reliably rotated the headless simulator; rotate via Simulator.app instead (see the Simulator section).
 
 ## Project
 
@@ -87,7 +87,7 @@ Xcode's beta removed the standalone Simulator app (its replacement is DeviceHub)
 export DEVELOPER_DIR=/Applications/Xcode-beta.app
 xcrun simctl boot iPad27
 xcrun simctl install iPad27 DerivedData27/Build/Products/Debug-iphonesimulator/Takeup.app
-xcrun simctl launch iPad27 xyz.five82.takeup -tab browse   # or -autoplay <itemId>
+xcrun simctl launch iPad27 xyz.five82.takeup -tab genres   # or -autoplay <itemId>
 xcrun simctl io iPad27 screenshot /tmp/check.png
 xcrun simctl terminate iPad27 xyz.five82.takeup   # stops headless audio too
 ```
