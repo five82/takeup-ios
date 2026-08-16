@@ -158,6 +158,12 @@ struct RootView: View {
            let client = appEnvironment.client,
            let item = try? await client.item(id: itemId) {
             detailPath.append(item)
+            // `-person <name>` on top of `-detail` pushes the cast-card
+            // person search, since headless simulators cannot tap.
+            if let personIndex = arguments.firstIndex(of: "-person"),
+               arguments.indices.contains(personIndex + 1) {
+                detailPath.append(PersonSearch(name: arguments[personIndex + 1]))
+            }
         }
         guard let flagIndex = arguments.firstIndex(of: "-autoplay"),
               arguments.indices.contains(flagIndex + 1),

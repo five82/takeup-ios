@@ -1,6 +1,11 @@
 import SwiftUI
 import UIKit
 
+/// Navigation value for tapping a cast card: pushes a search for the person.
+struct PersonSearch: Hashable {
+    let name: String
+}
+
 /// Detail for any item kind, dressed in accents woven from its own artwork:
 /// gauze from the detail art, a bias-cut head with the logo lane, and a body
 /// that goes two-pane in wide panes (story left, people/season right).
@@ -54,6 +59,9 @@ struct ItemDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(for: Item.self) { child in
             ItemDetailView(itemId: child.id, fallbackTitle: child.title)
+        }
+        .navigationDestination(for: PersonSearch.self) { person in
+            SearchView(initialQuery: person.name)
         }
         .fullScreenCover(item: $playbackItem, onDismiss: { Task { await load() } }) { playable in
             PlayerScreen(item: playable)
@@ -581,20 +589,26 @@ struct ItemDetailView: View {
         }
     }
 
+    /// Tapping a card searches the person, matching the Android bill.
     private func creditCard(_ credit: Credit) -> some View {
-        VStack(alignment: .leading, spacing: 1) {
-            Text(credit.name)
-                .font(.system(size: 18))
-                .foregroundStyle(Color.ink)
-            Text(credit.character ?? credit.role)
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(Color.muted)
+        NavigationLink(value: PersonSearch(name: credit.name)) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(credit.name)
+                    .font(.system(size: 18))
+                    .foregroundStyle(Color.ink)
+                Text(credit.character ?? credit.role)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Color.muted)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(Color.ink.opacity(0.05), in: RoundedRectangle(cornerRadius: 12))
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.ink.opacity(0.10), lineWidth: 1))
+            .contentShape(RoundedRectangle(cornerRadius: 12))
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(Color.ink.opacity(0.05), in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.ink.opacity(0.10), lineWidth: 1))
+        .buttonStyle(.plain)
+        .hoverEffect(.highlight)
     }
 
     // MARK: - Watched toggle

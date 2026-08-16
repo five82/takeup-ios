@@ -4,10 +4,16 @@ import SwiftUI
 /// poster, the title, its context line, and a kind tag.
 struct SearchView: View {
     @Environment(AppEnvironment.self) private var appEnvironment
-    @State private var query = ""
+    @State private var query: String
     @State private var results: [Item] = []
     @State private var fuzzy = false
     @State private var searched = false
+
+    /// A non-empty initial query makes this a pushed person search (from a
+    /// cast card) rather than the sidebar's blank search root.
+    init(initialQuery: String = "") {
+        _query = State(initialValue: initialQuery)
+    }
 
     var body: some View {
         ZStack {
@@ -32,6 +38,7 @@ struct SearchView: View {
                 .padding(.vertical, 8)
             }
         }
+        .paneConstrained()
         .background(Color.stage)
         .navigationTitle("Search")
         .navigationBarTitleDisplayMode(.inline)
