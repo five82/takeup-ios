@@ -8,7 +8,7 @@ This file provides guidance when working with code in this repository.
 - The `.xcodeproj` is generated and gitignored. Run `xcodegen generate` after adding, removing, or renaming files, or after editing `project.yml`.
 - Build and test on the iOS simulator by default. Use the Xcode beta toolchain (`DEVELOPER_DIR=/Applications/Xcode-beta.app`) so the simulator matches the physical iPad's OS.
 - Unlike the Android emulator, video playback (including MKV via MPVKit) works in the simulator. HDR/EDR output, hardware decode, and playback smoothness must be verified on the physical iPad.
-- The app has debug launch arguments for CLI-driven checks: `-autoplay <itemId>` jumps straight into playback, `-tab <home|movies|shorts|tv|browse|search|downloads|settings>` selects a sidebar section, `-detail <itemId>` pushes an item's detail screen (add `-person <name>` to also push the cast-card person search), `-server <address>` sets the Loom address (an unroutable address simulates offline), `-download <itemId>` starts a download, `-autochain` plays the next episode automatically when the end-of-playback overlay would offer it, and `-landscape` narrows supported orientations to landscape (headless simulators cannot be rotated; alternatively, open the stable Xcode's Simulator.app on the booted device and use Device > Rotate).
+- The app has debug launch arguments for CLI-driven checks: `-autoplay <itemId>` jumps straight into playback, `-tab <home|movies|shorts|tv|browse|search|downloads|settings>` selects a sidebar section, `-detail <itemId>` pushes an item's detail screen (add `-person <name>` to also push the cast-card person search), `-server <address>` sets the Loom address (an unroutable address simulates offline), `-download <itemId>` starts a download, `-autochain` plays the next episode automatically when the end-of-playback overlay would offer it, and `-landscape` narrows supported orientations to landscape. In practice `-landscape` has not reliably rotated the headless simulator; rotate via Simulator.app instead (see the Simulator section).
 
 ## Project
 
@@ -93,6 +93,16 @@ xcrun simctl terminate iPad27 xyz.five82.takeup   # stops headless audio too
 ```
 
 A launched player keeps playing (audibly) in the headless simulator; terminate the app when done.
+
+To check landscape, rotate the booted device with the stable Xcode's Simulator.app (it can attach to the beta simulator; activate it first or the menu click is flaky). Always verify orientation-sensitive changes in both orientations this way — the `-landscape` launch argument has not reliably rotated a headless simulator:
+
+```bash
+open -a /Applications/Xcode.app/Contents/Developer/Applications/Simulator.app \
+  --args -CurrentDeviceUDID "$(xcrun simctl list devices | grep iPad27 | grep -o '[0-9A-F-]\{36\}')"
+osascript -e 'tell application "Simulator" to activate' -e 'delay 1' \
+  -e 'tell application "System Events" to tell process "Simulator" to click menu item "Rotate Right" of menu "Device" of menu bar 1'
+# Rotate Left to return to portrait; screenshot dimensions confirm the orientation took.
+```
 
 ## Physical iPad
 

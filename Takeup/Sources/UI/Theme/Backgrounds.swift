@@ -81,13 +81,19 @@ struct HouseLights: View {
     var body: some View {
         GeometryReader { proxy in
             let radius = 1.15 * proxy.size.width
+            // A full disc squashed into an ellipse and cornered, rather than a
+            // scaled screen-sized layer: the disc reaches clear at its own
+            // edge, so the compression can't leave a visible cut line where
+            // the layer ends (it did, in landscape).
             RadialGradient(
                 colors: [thread.opacity(0.20), .clear],
-                center: .topLeading,
+                center: .center,
                 startRadius: 0,
                 endRadius: radius
             )
-            .scaleEffect(y: 0.55, anchor: .top)
+            .frame(width: radius * 2, height: radius * 2)
+            .scaleEffect(y: 0.55)
+            .position(x: 0, y: 0)
         }
         .background(Color.stage)
         .ignoresSafeArea()
