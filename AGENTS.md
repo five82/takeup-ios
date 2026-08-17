@@ -53,7 +53,11 @@ Takeup should feel closer to Apple TV than to the typical black media-center int
 
 The visual language lives in `Takeup/Sources/UI/Theme/`: the palette and genre jewel table (`Palette.swift`), SF type scale and the uppercase tracked label voice (`Typography.swift`), the gauze/dye-bath/house-lights/three-threads/shadow-weave light treatments (`Backgrounds.swift`), the 4-degree `BiasCutShape` and logo lane (`BiasCut.swift`), artwork-seeded woven accents (`Woven.swift`), and shared components — selvedge, thread progress, badges, states (`Components.swift`). Token values mirror the Android app's `ui/theme`; change them in both repos together.
 
-Known iOS 26 beta quirk: pushed `NavigationStack` destinations receive an unspecified width proposal and balloon to their ideal width. The root shell measures the pane into `\.paneWidth` and pushable screens call `.paneConstrained()`; new pushable screens must do the same.
+Known iOS 26 beta quirks:
+
+- Pushed `NavigationStack` destinations receive an unspecified width proposal and balloon to their ideal width. The root shell measures the pane into `\.paneWidth` and pushable screens call `.paneConstrained()`; new pushable screens must do the same.
+- An aspect-filled image (`CachedImage(contentMode: .fill)`) reports its overflowing filled size to layout, not the proposal, ballooning any enclosing stack — `.clipped()` trims drawing only. Host fill-mode images in an `overlay` of a proposal-sized view (see `GauzeBackground`) so the overflow stays out of layout.
+- A `ScrollView` adopts its content's ideal width instead of clamping to the proposal, so an unconstrained horizontal scroller balloons to its full content width and is left with no scrollable range — drags rubber-band back before the end. Pin every horizontal scroller with an explicit `.frame(width:, alignment: .leading)` (see Home's rows and the detail season strip).
 
 ## Build
 
