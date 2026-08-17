@@ -197,7 +197,7 @@ struct ItemDetailView: View {
         VStack(alignment: .leading, spacing: 0) {
             storyColumn(for: item)
             if item.kind == "show" {
-                seasonSection(width: nil)
+                seasonSection(width: paneWidth - 40)
             }
             creditsSection(for: item)
         }
@@ -509,7 +509,7 @@ struct ItemDetailView: View {
     // MARK: - Seasons and episodes
 
     @ViewBuilder
-    private func seasonSection(width: CGFloat?) -> some View {
+    private func seasonSection(width: CGFloat) -> some View {
         if !seasons.isEmpty {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
@@ -518,6 +518,10 @@ struct ItemDetailView: View {
                     }
                 }
             }
+            // Explicit width: on the iOS 26 beta a ScrollView takes its
+            // content's ideal width instead of clamping to the proposal,
+            // leaving a long season strip with no scrollable range.
+            .frame(width: width, alignment: .leading)
             .padding(.top, 20)
             .padding(.bottom, 4)
             VStack(spacing: 0) {

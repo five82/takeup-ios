@@ -41,7 +41,7 @@ struct HomeView: View {
                         if offline {
                             offlineRows(width: proxy.size.width)
                         } else {
-                            rows
+                            rows(width: proxy.size.width)
                         }
                     }
                     .padding(.bottom, 32)
@@ -197,11 +197,12 @@ struct HomeView: View {
     // MARK: - Rows
 
     @ViewBuilder
-    private var rows: some View {
+    private func rows(width: CGFloat) -> some View {
         if !continueWatching.isEmpty {
             thumbRow(
                 title: "Continue Watching",
                 items: continueWatching,
+                width: width,
                 caption: { item in
                     [episodeLabel(item), item.kind == "episode" ? item.title : nil, remainingLabel(item)]
                         .compactMap { $0 }.joined(separator: " · ")
@@ -212,16 +213,17 @@ struct HomeView: View {
             thumbRow(
                 title: "Next Up",
                 items: nextUp,
+                width: width,
                 caption: { item in
                     [episodeLabel(item), item.title].compactMap { $0 }.joined(separator: " · ")
                 }
             )
         }
         if !recentlyAdded.isEmpty {
-            posterRow(title: "Recently Added", items: recentlyAdded, labelColor: .muted)
+            posterRow(title: "Recently Added", items: recentlyAdded, width: width, labelColor: .muted)
         }
         ForEach(discovery) { shelf in
-            posterRow(title: shelf.title, items: shelf.items, labelColor: .violet)
+            posterRow(title: shelf.title, items: shelf.items, width: width, labelColor: .violet)
         }
     }
 
@@ -251,6 +253,7 @@ struct HomeView: View {
                 thumbRow(
                     title: "Continue Watching",
                     items: started,
+                    width: width,
                     caption: { offlineCaption($0, catalog: catalog) }
                 )
             }
@@ -258,6 +261,7 @@ struct HomeView: View {
                 posterRow(
                     title: "Downloaded",
                     items: downloaded,
+                    width: width,
                     labelColor: .violet,
                     badge: { item in
                         item.kind == "show"
@@ -281,12 +285,12 @@ struct HomeView: View {
         .compactMap { $0 }.joined(separator: " · ")
     }
 
-    private func thumbRow(title: String, items: [Item], caption: @escaping (Item) -> String) -> some View {
+    private func thumbRow(title: String, items: [Item], width: CGFloat, caption: @escaping (Item) -> String) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HomeRowLabel(text: title)
                 .padding(.horizontal, 20)
             ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(alignment: .top, spacing: 10) {
+                HStack(alignment: .top, spacing: 10) {
                     ForEach(items) { item in
                         Button {
                             playbackItem = item
@@ -313,6 +317,11 @@ struct HomeView: View {
                 }
                 .padding(.horizontal, 20)
             }
+            // Explicit width: on the iOS 26 beta a ScrollView takes its
+            // content's ideal width instead of clamping to the proposal, so
+            // an unframed row balloons to its full content width and is left
+            // with no scrollable range — every drag rubber-bands back.
+            .frame(width: width, alignment: .leading)
         }
         .padding(.top, 22)
     }
@@ -320,6 +329,7 @@ struct HomeView: View {
     private func posterRow(
         title: String,
         items: [Item],
+        width: CGFloat,
         labelColor: Color,
         badge: ((Item) -> Int?)? = nil
     ) -> some View {
@@ -327,7 +337,7 @@ struct HomeView: View {
             HomeRowLabel(text: title, color: labelColor)
                 .padding(.horizontal, 20)
             ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(alignment: .top, spacing: 10) {
+                HStack(alignment: .top, spacing: 10) {
                     ForEach(items) { item in
                         NavigationLink(value: item) {
                             PosterCard(item: item, badgeCount: badge?(item))
@@ -338,6 +348,7 @@ struct HomeView: View {
                 }
                 .padding(.horizontal, 20)
             }
+            .frame(width: width, alignment: .leading)
         }
         .padding(.top, 22)
     }

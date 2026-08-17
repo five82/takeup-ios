@@ -52,9 +52,17 @@ struct GauzeBackground: View {
         ZStack {
             DyeBath(seed: seed)
             if let url {
-                CachedImage(url: url, contentMode: .fill) { Color.clear }
-                    .saturation(1.4)
-                    .blur(radius: 64)
+                // The filled image reports its overflowing size, not the
+                // proposal; hosting it in an overlay keeps that overflow out
+                // of layout, where it would balloon the enclosing stack and
+                // shove the screen's real content off the pane (`.clipped()`
+                // trims drawing only, not the reported size).
+                Color.clear
+                    .overlay {
+                        CachedImage(url: url, contentMode: .fill) { Color.clear }
+                            .saturation(1.4)
+                            .blur(radius: 64)
+                    }
                     .ignoresSafeArea()
             }
             LinearGradient(

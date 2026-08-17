@@ -96,6 +96,16 @@ xcrun simctl terminate iPad27 xyz.five82.takeup   # stops headless audio too
 
 A launched player keeps playing (audibly) in the headless simulator; terminate the app when done.
 
+`simctl` has no touch injection. For taps and swipes (scroll checks especially), use idb — companion installed via Homebrew (`facebook/fb/idb-companion`), Python client at `~/.venvs/idb/bin/idb`. It must run with the stable Xcode selected (the beta removed SimulatorKit.framework, which the companion loads for HID), and coordinates are device points (iPad27: 834x1210 portrait). If a swipe errors about a stale companion, `pkill -f idb_companion; rm -rf /tmp/idb` and retry:
+
+```bash
+UDID=$(xcrun simctl list devices | grep iPad27 | grep -o '[0-9A-F-]\{36\}')
+DEVELOPER_DIR=/Applications/Xcode.app ~/.venvs/idb/bin/idb ui tap --udid "$UDID" 290 214
+DEVELOPER_DIR=/Applications/Xcode.app ~/.venvs/idb/bin/idb ui swipe --udid "$UDID" --duration 0.8 780 724 260 724
+```
+
+A simulator freshly booted (or long-running) can fail its first Loom probe and land on the Offline screen while the Mac reaches Loom fine; tap Try again, or do a full `simctl shutdown` + `boot` if it persists (force-quitting Simulator.app does not shut the device down).
+
 To check landscape, rotate the booted device with the stable Xcode's Simulator.app (it can attach to the beta simulator; activate it first or the menu click is flaky). Always verify orientation-sensitive changes in both orientations this way — the `-landscape` launch argument has not reliably rotated a headless simulator:
 
 ```bash
