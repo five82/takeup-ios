@@ -134,17 +134,22 @@ struct HomeView: View {
         let logoURL = heroLogoURL(hero)
         let lane = logoLaneHeight(aspect: heroLogoAspect)
         let solidLeft: CGFloat = logoURL != nil ? lane + 76 : 160
-        return BiasCutBackdrop(url: heroBackdropURL, width: width, solidLeft: solidLeft) {
-            VStack(alignment: .leading, spacing: 0) {
-                NavigationLink(value: hero) {
+        // The whole hero is one tap target, matching the Android app.
+        return NavigationLink(value: hero) {
+            BiasCutBackdrop(url: heroBackdropURL, width: width, solidLeft: solidLeft) {
+                VStack(alignment: .leading, spacing: 0) {
                     heroIdentity(hero, logoURL: logoURL, lane: lane, width: width)
+                    heroMeta(hero, width: width)
                 }
-                .buttonStyle(.plain)
-                heroMeta(hero, width: width)
+                .padding(.horizontal, 20)
+                .padding(.bottom, 18)
             }
-            .padding(.horizontal, 20)
-            .padding(.bottom, 18)
+            // The ground below the bias cut is transparent, so without an
+            // explicit content shape taps there fall through; Android's
+            // clickable Box covers the hero's full rect.
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
     }
 
     @ViewBuilder
