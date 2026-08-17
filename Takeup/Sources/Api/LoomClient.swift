@@ -13,6 +13,11 @@ struct LoomError: Error, LocalizedError {
 struct LoomClient {
     let baseURL: URL
 
+    /// NetworkPolicy's gate: true when this network has no route to Loom at
+    /// all, in which case a request is refused rather than sent to wait out its
+    /// timeout. Default open so tests and onboarding need not wire it up.
+    var blocked: @Sendable () -> Bool = { false }
+
     private static let session: URLSession = {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 20
@@ -197,6 +202,7 @@ struct LoomClient {
         body: Data? = nil,
         timeout: TimeInterval? = nil
     ) async throws -> T {
+        if blocked() { throw URLError(.notConnectedToInternet) }
         var components = URLComponents(url: baseURL.appending(path: "api/v1/\(path)"), resolvingAgainstBaseURL: false)
         if !query.isEmpty { components?.queryItems = query }
         guard let url = components?.url else { throw URLError(.badURL) }

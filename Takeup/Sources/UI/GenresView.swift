@@ -4,9 +4,11 @@ import SwiftUI
 /// palette rather than any one artwork.
 struct GenresView: View {
     @Environment(AppEnvironment.self) private var appEnvironment
+    @Environment(NetworkPolicy.self) private var network
     @State private var genres: [Genre] = []
     @State private var loaded = false
     @State private var loadError: String?
+    @State private var offline = false
 
     var body: some View {
         ZStack {
@@ -22,7 +24,17 @@ struct GenresView: View {
                         .padding(.horizontal, 20)
                         .padding(.top, 16)
                         .padding(.bottom, 12)
-                    grid
+                    if offline {
+                        // A genre is a Loom query; there is nothing on the
+                        // device standing in for one.
+                        OfflineNotice(
+                            reason: network.reason + " Collections and genres come from Loom.",
+                            onRetry: retry
+                        )
+                        .padding(.horizontal, 20)
+                    } else {
+                        grid
+                    }
                 }
                 .padding(.bottom, 24)
             }
@@ -37,13 +49,15 @@ struct GenresView: View {
             ItemGridView(source: .genre(genre), title: genre.name)
         }
         .overlay {
-            if let loadError, genres.isEmpty {
+            if offline {
+                EmptyView()
+            } else if let loadError, genres.isEmpty {
                 ErrorState(message: loadError) { Task { await load() } }
             } else if !loaded {
                 LoadingState()
             }
         }
-        .task { await load() }
+        .task(id: network.reach) { await load() }
     }
 
     private var grid: some View {
@@ -115,13 +129,29 @@ struct GenresView: View {
         }
     }
 
+    private func retry() {
+        network.recheck()
+        Task { await load() }
+    }
+
     private func load() async {
         guard let client = appEnvironment.client else { return }
+        if network.reach == .offline {
+            offline = true
+            loaded = true
+            return
+        }
         loadError = nil
         do {
             genres = try await client.genres()
+            offline = false
         } catch {
-            loadError = error.localizedDescription
+            if isOfflineError(error) {
+                network.markUnreachable()
+                offline = true
+            } else {
+                loadError = error.localizedDescription
+            }
         }
         loaded = true
     }

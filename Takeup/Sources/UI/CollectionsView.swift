@@ -3,9 +3,11 @@ import SwiftUI
 /// Collections: backdrop-fronted cards under the violet thread.
 struct CollectionsView: View {
     @Environment(AppEnvironment.self) private var appEnvironment
+    @Environment(NetworkPolicy.self) private var network
     @State private var collections: [MediaCollection] = []
     @State private var loaded = false
     @State private var loadError: String?
+    @State private var offline = false
     @State private var leadSwatches: [RGB] = []
 
     var body: some View {
@@ -19,7 +21,17 @@ struct CollectionsView: View {
                         .padding(.horizontal, 20)
                         .padding(.top, 16)
                         .padding(.bottom, 12)
-                    grid
+                    if offline {
+                        // A collection is a Loom query; there is nothing on the
+                        // device standing in for one.
+                        OfflineNotice(
+                            reason: network.reason + " Collections and genres come from Loom.",
+                            onRetry: retry
+                        )
+                        .padding(.horizontal, 20)
+                    } else {
+                        grid
+                    }
                 }
                 .padding(.bottom, 24)
             }
@@ -34,13 +46,15 @@ struct CollectionsView: View {
             ItemGridView(source: .collection(collection), title: collection.title)
         }
         .overlay {
-            if let loadError, collections.isEmpty {
+            if offline {
+                EmptyView()
+            } else if let loadError, collections.isEmpty {
                 ErrorState(message: loadError) { Task { await load() } }
             } else if !loaded {
                 LoadingState()
             }
         }
-        .task { await load() }
+        .task(id: network.reach) { await load() }
     }
 
     private var grid: some View {
@@ -106,17 +120,33 @@ struct CollectionsView: View {
         return backdrops.first { !used.contains($0) } ?? backdrops.first
     }
 
+    private func retry() {
+        network.recheck()
+        Task { await load() }
+    }
+
     private func load() async {
         guard let client = appEnvironment.client else { return }
+        if network.reach == .offline {
+            offline = true
+            loaded = true
+            return
+        }
         loadError = nil
         do {
             collections = try await client.collections()
+            offline = false
             if let lead = collections.first?.items.first,
                let url = client.imageURL(id: lead.posterImageId, tag: lead.posterImageTag, width: 240) {
                 leadSwatches = await WovenExtractor.threads(for: url)
             }
         } catch {
-            loadError = error.localizedDescription
+            if isOfflineError(error) {
+                network.markUnreachable()
+                offline = true
+            } else {
+                loadError = error.localizedDescription
+            }
         }
         loaded = true
     }

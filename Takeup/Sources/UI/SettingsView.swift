@@ -4,8 +4,8 @@ import SwiftUI
 /// labels are color-coded by thread, like the Android app.
 struct SettingsView: View {
     @Environment(AppEnvironment.self) private var appEnvironment
+    @Environment(NetworkPolicy.self) private var network
     @State private var discovery = LoomDiscovery()
-    @State private var status: String?
 
     var body: some View {
         @Bindable var appEnvironment = appEnvironment
@@ -31,9 +31,18 @@ struct SettingsView: View {
                         .background(Color.surface1.opacity(0.6), in: RoundedRectangle(cornerRadius: 10))
                         .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.line, lineWidth: 1))
                         .padding(.top, 12)
-                    HStack(spacing: 14) {
-                        Button("Check connection") {
-                            Task { await testConnection() }
+                    RowLabel(text: "Network", color: .amber)
+                        .padding(.top, 28)
+                    HStack(spacing: 12) {
+                        Circle()
+                            .fill(reachColor)
+                            .frame(width: 6, height: 6)
+                        Text(reachSentence)
+                            .font(.bodyMedium)
+                            .foregroundStyle(Color.muted)
+                        Spacer(minLength: 8)
+                        Button("Check") {
+                            network.recheck()
                         }
                         .font(.labelLarge)
                         .foregroundStyle(Color.ink)
@@ -42,11 +51,6 @@ struct SettingsView: View {
                         .background(Color.ink.opacity(0.08), in: Capsule())
                         .buttonStyle(.plain)
                         .hoverEffect(.lift)
-                        if let status {
-                            Text(status)
-                                .font(.bodySmall)
-                                .foregroundStyle(status.hasPrefix("Connected") ? Color.teal : Color.ember)
-                        }
                     }
                     .padding(.top, 12)
 
@@ -87,10 +91,28 @@ struct SettingsView: View {
         .onDisappear { discovery.stop() }
     }
 
+    /// What the app currently knows about the route to Loom, in its own words
+    /// rather than an exception's.
+    private var reachSentence: String {
+        switch network.reach {
+        case .home: "Loom is answering on your home network."
+        case .remote: "Loom is answering through the tunnel."
+        case .offline: network.reason
+        case .unknown: "Checking for Loom..."
+        }
+    }
+
+    private var reachColor: Color {
+        switch network.reach {
+        case .home, .remote: .teal
+        case .offline: .amber
+        case .unknown: .faint
+        }
+    }
+
     private func discoveredRow(_ server: LoomDiscovery.Server) -> some View {
         Button {
             appEnvironment.serverURLString = server.urlString
-            status = nil
         } label: {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
@@ -115,18 +137,5 @@ struct SettingsView: View {
         .buttonStyle(.plain)
         .hoverEffect(.lift)
         .padding(.top, 8)
-    }
-
-    private func testConnection() async {
-        guard let client = appEnvironment.client else {
-            status = "Invalid server address"
-            return
-        }
-        do {
-            try await client.health()
-            status = "Connected to \(client.baseURL.absoluteString)"
-        } catch {
-            status = "Failed: \(error.localizedDescription)"
-        }
     }
 }

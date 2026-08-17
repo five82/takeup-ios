@@ -17,6 +17,32 @@ struct PendingProgress: Codable {
     let durationMs: Int64
 }
 
+/// The artwork buckets saved alongside a download, matched to the widths the
+/// UI already requests from Loom so playback and offline browsing share a cache.
+enum ArtworkKind: String, CaseIterable {
+    case poster, backdrop, thumb, logo
+
+    var width: Int { self == .backdrop ? 1440 : 480 }
+
+    func imageId(for item: Item) -> Int64? {
+        switch self {
+        case .poster: item.posterImageId
+        case .backdrop: item.backdropImageId
+        case .thumb: item.thumbImageId
+        case .logo: item.logoImageId
+        }
+    }
+
+    func imageTag(for item: Item) -> String? {
+        switch self {
+        case .poster: item.posterImageTag
+        case .backdrop: item.backdropImageTag
+        case .thumb: item.thumbImageTag
+        case .logo: item.logoImageTag
+        }
+    }
+}
+
 /// Full-file downloads over a background URLSession, a JSON catalog of item
 /// snapshots for offline browsing, locally saved posters, and a deferred
 /// progress queue that flushes to Loom when it is reachable.
@@ -30,12 +56,20 @@ final class DownloadManager {
     private(set) var activeProgress: [Int64: Double] = [:]
     /// Item snapshots for in-flight downloads, persisted across relaunch.
     private(set) var pendingItems: [Int64: Item] = [:]
+    /// Captured seasons/shows above a downloaded episode, keyed by item id.
+    private(set) var ancestors: [Int64: Item] = [:]
+    /// Library id -> kind ("movies"/"shorts"/"tv"), learned whenever Loom
+    /// answers /libraries. An item only carries its library's id, so offline
+    /// this is the only thing that can tell a short film from a feature.
+    private(set) var libraryKinds: [Int64: String] = [:]
     private var pendingProgressQueue: [PendingProgress] = []
 
     private let directory: URL
     private let catalogURL: URL
     private let pendingItemsURL: URL
     private let pendingProgressURL: URL
+    private let ancestorsURL: URL
+    private let libraryKindsURL: URL
     private let delegateProxy: SessionDelegate
     private var session: URLSession!
 
@@ -46,9 +80,13 @@ final class DownloadManager {
         catalogURL = directory.appending(path: "catalog.json")
         pendingItemsURL = directory.appending(path: "pending-items.json")
         pendingProgressURL = directory.appending(path: "pending-progress.json")
+        ancestorsURL = directory.appending(path: "ancestors.json")
+        libraryKindsURL = directory.appending(path: "library-kinds.json")
         completed = Self.load([DownloadEntry].self, from: catalogURL) ?? []
         pendingItems = Self.load([Int64: Item].self, from: pendingItemsURL) ?? [:]
         pendingProgressQueue = Self.load([PendingProgress].self, from: pendingProgressURL) ?? []
+        ancestors = Self.load([Int64: Item].self, from: ancestorsURL) ?? [:]
+        libraryKinds = Self.load([Int64: String].self, from: libraryKindsURL) ?? [:]
 
         delegateProxy = SessionDelegate(directory: directory)
         let configuration = URLSessionConfiguration.background(withIdentifier: "xyz.five82.takeup.downloads")
@@ -56,6 +94,10 @@ final class DownloadManager {
         configuration.sessionSendsLaunchEvents = true
         session = URLSession(configuration: configuration, delegate: delegateProxy, delegateQueue: nil)
         delegateProxy.manager = self
+
+        // A prior run may have crashed between finishing a download and
+        // pruning, or between losing a queued task and pruning; catch up now.
+        pruneAncestors()
 
         // Reattach to tasks that survived an app relaunch.
         session.getAllTasks { tasks in
@@ -74,6 +116,7 @@ final class DownloadManager {
                     self.activeProgress[itemId] = nil
                 }
                 self.persistPendingItems()
+                self.pruneAncestors()
             }
         }
     }
@@ -89,8 +132,25 @@ final class DownloadManager {
     }
 
     func posterURL(for itemId: Int64) -> URL? {
-        let url = directory.appending(path: "\(itemId)-poster.jpg")
+        artworkURL(for: itemId, kind: .poster)
+    }
+
+    func artworkURL(for itemId: Int64, kind: ArtworkKind) -> URL? {
+        let url = directory.appending(path: "\(itemId)-\(kind.rawValue).jpg")
         return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
+    /// A snapshot of the offline library as it stands right now, for views to
+    /// read the same way they'd read a fetched Loom response.
+    var offlineCatalog: OfflineCatalog {
+        let pending = Dictionary(uniqueKeysWithValues: pendingProgressQueue.map { ($0.itemId, $0) })
+        return OfflineCatalog(
+            entries: completed,
+            ancestors: ancestors,
+            libraryKinds: libraryKinds,
+            pending: pending,
+            pendingItems: pendingItems
+        )
     }
 
     // MARK: - Lifecycle
@@ -113,7 +173,14 @@ final class DownloadManager {
             task.taskDescription = String(item.id)
             task.resume()
 
-            await savePoster(for: full, client: client)
+            await saveArtwork(for: full, client: client)
+            // Both of these describe where the file belongs rather than the
+            // file itself, and both are only answerable while Loom is
+            // reachable. A failure costs context offline, never the download.
+            await captureAncestors(for: full, client: client)
+            if let libraries = try? await client.libraries() {
+                updateLibraryKinds(libraries)
+            }
         } catch {
             activeProgress[item.id] = nil
         }
@@ -126,17 +193,17 @@ final class DownloadManager {
         activeProgress[itemId] = nil
         pendingItems[itemId] = nil
         persistPendingItems()
+        pruneAncestors()
     }
 
     func remove(_ itemId: Int64) {
         if let entry = entry(for: itemId) {
             try? FileManager.default.removeItem(at: localURL(for: entry))
         }
-        if let poster = posterURL(for: itemId) {
-            try? FileManager.default.removeItem(at: poster)
-        }
+        deleteArtwork(for: itemId)
         completed.removeAll { $0.item.id == itemId }
         persistCatalog()
+        pruneAncestors()
     }
 
     // MARK: - Delegate callbacks (hop from the session's background queue)
@@ -156,12 +223,14 @@ final class DownloadManager {
         completed.append(DownloadEntry(item: item, relativePath: relativePath, size: size, downloadedAt: Date()))
         completed.sort { $0.downloadedAt > $1.downloadedAt }
         persistCatalog()
+        pruneAncestors()
     }
 
     func failDownload(itemId: Int64) {
         activeProgress[itemId] = nil
         pendingItems[itemId] = nil
         persistPendingItems()
+        pruneAncestors()
     }
 
     // MARK: - Deferred progress
@@ -178,6 +247,8 @@ final class DownloadManager {
         for pending in pendingProgressQueue {
             do {
                 try await client.reportProgress(id: pending.itemId, positionMs: pending.positionMs, durationMs: pending.durationMs)
+            } catch is LoomError {
+                // Loom answered with an error; retrying the identical write cannot help.
             } catch {
                 remaining.append(pending)
             }
@@ -186,14 +257,74 @@ final class DownloadManager {
         persist(pendingProgressQueue, to: pendingProgressURL)
     }
 
-    // MARK: - Persistence
+    // MARK: - Artwork
 
-    private func savePoster(for item: Item, client: LoomClient) async {
-        guard let url = client.imageURL(id: item.posterImageId, tag: item.posterImageTag, width: 480),
-              let (data, _) = try? await URLSession.shared.data(from: url)
-        else { return }
-        try? data.write(to: directory.appending(path: "\(item.id)-poster.jpg"))
+    private func saveArtwork(for item: Item, client: LoomClient) async {
+        for kind in ArtworkKind.allCases {
+            guard let url = client.imageURL(id: kind.imageId(for: item), tag: kind.imageTag(for: item), width: kind.width),
+                  let (data, _) = try? await URLSession.shared.data(from: url)
+            else { continue }
+            try? data.write(to: directory.appending(path: "\(item.id)-\(kind.rawValue).jpg"))
+        }
     }
+
+    private func deleteArtwork(for itemId: Int64) {
+        for kind in ArtworkKind.allCases {
+            try? FileManager.default.removeItem(at: directory.appending(path: "\(itemId)-\(kind.rawValue).jpg"))
+        }
+    }
+
+    // MARK: - Ancestors and library kinds
+
+    /// Stores the season and show above an episode, artwork included, so an
+    /// offline library can group episodes the way Loom does instead of
+    /// listing them loose. Best-effort: a failure costs context offline,
+    /// never the download.
+    private func captureAncestors(for item: Item, client: LoomClient) async {
+        var parentId = item.parentId
+        var changed = false
+        while let id = parentId, let parent = try? await client.item(id: id) {
+            ancestors[parent.id] = parent
+            changed = true
+            await saveArtwork(for: parent, client: client)
+            parentId = parent.parentId
+        }
+        if changed { persist(ancestors, to: ancestorsURL) }
+    }
+
+    /// Drops a captured show or season once the last download beneath it
+    /// (completed or still in flight) is gone. Their artwork is the largest
+    /// part of what they cost, so this runs on every change rather than
+    /// waiting for a restart.
+    private func pruneAncestors() {
+        guard !ancestors.isEmpty else { return }
+        var keep = Set<Int64>()
+        let liveItems = completed.map(\.item) + Array(pendingItems.values)
+        for liveItem in liveItems {
+            var parentId = liveItem.parentId
+            // A chain already walked cannot add anything new above it.
+            while let id = parentId, keep.insert(id).inserted {
+                parentId = ancestors[id]?.parentId
+            }
+        }
+        let dead = Set(ancestors.keys).subtracting(keep)
+        guard !dead.isEmpty else { return }
+        for id in dead {
+            ancestors[id] = nil
+            deleteArtwork(for: id)
+        }
+        persist(ancestors, to: ancestorsURL)
+    }
+
+    /// Refreshed whenever Loom answers /libraries and remembered across
+    /// relaunches: offline this is the only thing that can say which tab a
+    /// download belongs in.
+    func updateLibraryKinds(_ libraries: [Library]) {
+        libraryKinds = Dictionary(uniqueKeysWithValues: libraries.map { ($0.id, $0.kind) })
+        persist(libraryKinds, to: libraryKindsURL)
+    }
+
+    // MARK: - Persistence
 
     private func persistCatalog() { persist(completed, to: catalogURL) }
     private func persistPendingItems() { persist(pendingItems, to: pendingItemsURL) }

@@ -158,12 +158,12 @@ struct RootView: View {
             await DownloadManager.shared.start(item: item, client: client)
         }
         // `-detail <itemId>` pushes an item's detail screen for CLI-driven
-        // simulator checks.
+        // simulator checks. Falls back to the download snapshot so the offline
+        // screens can be checked the same way.
         if let flagIndex = arguments.firstIndex(of: "-detail"),
            arguments.indices.contains(flagIndex + 1),
            let itemId = Int64(arguments[flagIndex + 1]),
-           let client = appEnvironment.client,
-           let item = try? await client.item(id: itemId) {
+           let item = await resolveItem(itemId) {
             detailPath.append(item)
             // `-person <name>` on top of `-detail` pushes the cast-card
             // person search, since headless simulators cannot tap.
@@ -195,14 +195,16 @@ struct RootView: View {
               arguments.indices.contains(flagIndex + 1),
               let itemId = Int64(arguments[flagIndex + 1])
         else { return }
-        var resolved: Item?
-        if let client = appEnvironment.client {
-            resolved = try? await client.item(id: itemId)
+        autoplayItem = await resolveItem(itemId)
+    }
+
+    /// Loom's copy of an item, or the download snapshot when Loom cannot be
+    /// asked — the debug hooks have to work offline too.
+    private func resolveItem(_ itemId: Int64) async -> Item? {
+        if let client = appEnvironment.client, let item = try? await client.item(id: itemId) {
+            return item
         }
-        if resolved == nil {
-            resolved = DownloadManager.shared.entry(for: itemId)?.item
-        }
-        autoplayItem = resolved
+        return DownloadManager.shared.offlineCatalog.item(itemId)
     }
 }
 

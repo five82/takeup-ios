@@ -44,11 +44,20 @@ struct TakeupApp: App {
                 .preferredColorScheme(.dark)
                 .tint(.ember)
                 .environment(environment)
+                .environment(environment.network)
                 .environment(DownloadManager.shared)
                 .onChange(of: scenePhase) { _, phase in
-                    if phase == .active, let client = environment.client {
+                    guard phase == .active else { return }
+                    environment.network.recheck()
+                    if let client = environment.client {
                         Task { await DownloadManager.shared.flushPendingProgress(client: client) }
                     }
+                }
+                // Walking back onto the LAN, or the tunnel coming up, is the
+                // first moment anything queued while offline can be written.
+                .onChange(of: environment.network.reach) { _, reach in
+                    guard reach == .home || reach == .remote, let client = environment.client else { return }
+                    Task { await DownloadManager.shared.flushPendingProgress(client: client) }
                 }
         }
     }

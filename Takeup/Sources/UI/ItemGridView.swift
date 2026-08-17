@@ -15,10 +15,13 @@ struct ItemGridView: View {
     let title: String
 
     @Environment(AppEnvironment.self) private var appEnvironment
+    @Environment(DownloadManager.self) private var downloads
+    @Environment(NetworkPolicy.self) private var network
     @State private var items: [Item] = []
     @State private var reachedEnd = false
     @State private var loading = false
     @State private var loadError: String?
+    @State private var offline = false
     @State private var leadSwatches: [RGB] = []
     @State private var playbackItem: Item?
     @Namespace private var zoom
@@ -35,33 +38,11 @@ struct ItemGridView: View {
                         .foregroundStyle(Color.ink)
                         .padding(.horizontal, 20)
                         .padding(.top, 16)
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 10)], spacing: 10) {
-                        ForEach(items) { item in
-                            NavigationLink(value: item) {
-                                PosterCard(item: item, thread: thread)
-                            }
-                            .buttonStyle(.plain)
-                            .matchedTransitionSource(id: item.id, in: zoom)
-                            .contextMenu {
-                                if item.isPlayable {
-                                    Button("Play", systemImage: "play.fill") { playbackItem = item }
-                                }
-                                Button("Mark Watched", systemImage: "checkmark.circle") {
-                                    Task {
-                                        try? await appEnvironment.client?.setPlayed(id: item.id, true)
-                                        await reload()
-                                    }
-                                }
-                            }
-                            .onAppear {
-                                if item.id == items.last?.id {
-                                    Task { await loadNextPage() }
-                                }
-                            }
-                        }
+                    if offline {
+                        offlineContent
+                    } else {
+                        grid(items) { _ in nil }
                     }
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 24)
                 }
             }
         }
@@ -77,7 +58,9 @@ struct ItemGridView: View {
             PlayerScreen(item: playable)
         }
         .overlay {
-            if let loadError, items.isEmpty {
+            if offline {
+                EmptyView()
+            } else if let loadError, items.isEmpty {
                 ErrorState(message: loadError) {
                     Task { await loadNextPage() }
                 }
@@ -85,7 +68,77 @@ struct ItemGridView: View {
                 LoadingState()
             }
         }
-        .task { await loadNextPage() }
+        // Keyed on reach so walking back onto the LAN refills the grid from
+        // Loom on its own.
+        .task(id: network.reach) { await reload() }
+    }
+
+    /// The grid proper, shared by the online pages and the offline shelf.
+    private func grid(_ items: [Item], badge: @escaping (Item) -> Int?) -> some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 10)], spacing: 10) {
+            ForEach(items) { item in
+                NavigationLink(value: item) {
+                    PosterCard(item: item, thread: thread, badgeCount: badge(item))
+                }
+                .buttonStyle(.plain)
+                .matchedTransitionSource(id: item.id, in: zoom)
+                .contextMenu {
+                    if item.isPlayable {
+                        Button("Play", systemImage: "play.fill") { playbackItem = item }
+                    }
+                    // A write to Loom, which offline would only fail.
+                    if !offline {
+                        Button("Mark Watched", systemImage: "checkmark.circle") {
+                            Task {
+                                try? await appEnvironment.client?.setPlayed(id: item.id, true)
+                                await reload()
+                            }
+                        }
+                    }
+                }
+                .onAppear {
+                    if !offline, item.id == items.last?.id {
+                        Task { await loadNextPage() }
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.bottom, 24)
+    }
+
+    /// Offline a library tab is the A-Z of what is on the device; a genre or a
+    /// collection is a Loom query with nothing standing in for it.
+    @ViewBuilder
+    private var offlineContent: some View {
+        switch source {
+        case .library(let kind):
+            let catalog = downloads.offlineCatalog
+            let downloaded = catalog.library(kind)
+            if downloaded.isEmpty {
+                OfflineNotice(
+                    reason: network.reason + " Nothing from here is downloaded to this device.",
+                    onRetry: retry
+                )
+                .padding(.horizontal, 20)
+            } else {
+                OfflineBanner(reason: network.reason, onRetry: retry)
+                    .padding(.horizontal, 20)
+                grid(downloaded) { item in
+                    // A show's snapshot counts episodes that are not on this
+                    // device; what is left comes from the list itself.
+                    item.kind == "show"
+                        ? catalog.episodes(showId: item.id).filter { !($0.progress?.played ?? false) }.count
+                        : nil
+                }
+            }
+        case .genre, .collection:
+            OfflineNotice(
+                reason: network.reason + " Collections and genres come from Loom.",
+                onRetry: retry
+            )
+            .padding(.horizontal, 20)
+        }
     }
 
     @ViewBuilder
@@ -108,6 +161,11 @@ struct ItemGridView: View {
         }
     }
 
+    private func retry() {
+        network.recheck()
+        Task { await reload() }
+    }
+
     private func reload() async {
         items = []
         reachedEnd = false
@@ -116,6 +174,12 @@ struct ItemGridView: View {
 
     private func loadNextPage() async {
         guard !loading, !reachedEnd, let client = appEnvironment.client else { return }
+        // A settled offline verdict is answered from the downloads without
+        // spending a request that has nowhere to go.
+        if network.reach == .offline {
+            offline = true
+            return
+        }
         loading = true
         loadError = nil
         do {
@@ -124,6 +188,11 @@ struct ItemGridView: View {
             case .library(let kind):
                 page = try await client.items(library: kind, limit: Self.pageSize, offset: items.count).items
                 reachedEnd = page.count < Self.pageSize
+                // An item only carries its library's id, so this is the app's
+                // one chance to learn which tab a download belongs in later.
+                if items.isEmpty, let libraries = try? await client.libraries() {
+                    downloads.updateLibraryKinds(libraries)
+                }
             case .genre(let genre):
                 page = try await client.items(genreId: genre.id, limit: Self.pageSize, offset: items.count).items
                 reachedEnd = page.count < Self.pageSize
@@ -132,9 +201,15 @@ struct ItemGridView: View {
                 reachedEnd = true
             }
             items.append(contentsOf: page)
+            offline = false
             await loadLeadSwatches()
         } catch {
-            loadError = error.localizedDescription
+            if isOfflineError(error) {
+                network.markUnreachable()
+                offline = true
+            } else {
+                loadError = error.localizedDescription
+            }
         }
         loading = false
     }

@@ -127,6 +127,7 @@ private struct PlayerSessionView: View {
 
     @Environment(AppEnvironment.self) private var appEnvironment
     @Environment(DownloadManager.self) private var downloads
+    @Environment(NetworkPolicy.self) private var network
     @Environment(\.dismiss) private var dismiss
 
     @State private var model = PlayerModel()
@@ -597,7 +598,16 @@ private struct PlayerSessionView: View {
             // Refresh resume from the server, but never hold up local playback
             // for more than a moment when the server is unreachable.
             if let client = appEnvironment.client {
-                let refresh = Task { try? await client.item(id: item.id) }
+                let refresh = Task { () -> Item? in
+                    do {
+                        return try await client.item(id: item.id)
+                    } catch {
+                        // The local file carries this session either way, but
+                        // the rest of the app should stop asking.
+                        if isOfflineError(error) { network.markUnreachable() }
+                        return nil
+                    }
+                }
                 let watchdog = Task {
                     try? await Task.sleep(for: .seconds(3))
                     refresh.cancel()
@@ -621,14 +631,17 @@ private struct PlayerSessionView: View {
             startSeconds = Double(item.progress?.resumePositionMs ?? 0) / 1000
             playbackURL = client.streamURL(for: playback)
         } catch {
+            if isOfflineError(error) { network.markUnreachable() }
             loadError = error.localizedDescription
         }
     }
 
     /// The scrub thread and end overlay take their color from the poster.
     private func loadThreads() async {
-        guard let url = appEnvironment.client?.imageURL(id: item.posterImageId, tag: item.posterImageTag, width: 240)
-        else { return }
+        let posterURL = network.reach == .offline
+            ? downloads.posterURL(for: item.id)
+            : appEnvironment.client?.imageURL(id: item.posterImageId, tag: item.posterImageTag, width: 240)
+        guard let url = posterURL else { return }
         let extracted = await WovenExtractor.threads(for: url)
         withAnimation(.easeInOut(duration: 0.45)) {
             threads = extracted
@@ -641,16 +654,15 @@ private struct PlayerSessionView: View {
     /// Loom's Next Up cannot say what follows this specific episode, so the
     /// successor is computed locally from the show's own episode list — or,
     /// when the server is unreachable, from the downloaded episodes of the
-    /// same season (the download catalog does not capture show ancestry).
+    /// show it belongs to (its season's, when the show was never captured).
     private func loadNextEpisode() async {
         guard item.kind == "episode" else { return }
-        if let client = appEnvironment.client,
+        if network.reach != .offline, let client = appEnvironment.client,
            let next = try? await onlineNextEpisode(client) {
             nextEpisode = next
             return
         }
-        let siblings = downloads.completed.map(\.item).filter { $0.parentId == item.parentId }
-        nextEpisode = nextEpisodeAfter(item.id, in: siblings)
+        nextEpisode = nextEpisodeAfter(item.id, in: downloads.offlineCatalog.siblingEpisodes(of: item.id))
     }
 
     private func onlineNextEpisode(_ client: LoomClient) async throws -> Item? {
@@ -672,7 +684,10 @@ private struct PlayerSessionView: View {
     }
 
     private func thumbURL(for item: Item) -> URL? {
-        appEnvironment.client?.imageURL(id: item.thumbImageId, tag: item.thumbImageTag, width: 480)
+        if network.reach == .offline {
+            return downloads.artworkURL(for: item.id, kind: .thumb) ?? downloads.posterURL(for: item.id)
+        }
+        return appEnvironment.client?.imageURL(id: item.thumbImageId, tag: item.thumbImageTag, width: 480)
     }
 
     private func progressLoop() async {

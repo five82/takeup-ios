@@ -58,6 +58,9 @@ targets:
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
         NSAppTransportSecurity:
+          # Loom is trusted-LAN cleartext HTTP; the same address is reached through the
+          # Tailscale tunnel, which ATS's local-networking carve-out does not cover.
+          NSAllowsArbitraryLoads: true
           NSAllowsLocalNetworking: true
         NSLocalNetworkUsageDescription: Takeup connects to your Loom media server on the local network.
         NSBonjourServices:

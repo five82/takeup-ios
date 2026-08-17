@@ -3,8 +3,14 @@ import SwiftUI
 /// Home, mirroring the Android app: gauze from the featured pick's backdrop,
 /// a bias-cut hero with the logo lane, then Continue Watching, Next Up,
 /// Recently Added, and the day's discovery shelves.
+///
+/// With no Loom the same shapes are drawn over the downloads instead: the hero
+/// is what is half-watched (else what landed most recently), and the two rows
+/// are Continue Watching and Downloaded.
 struct HomeView: View {
     @Environment(AppEnvironment.self) private var appEnvironment
+    @Environment(DownloadManager.self) private var downloads
+    @Environment(NetworkPolicy.self) private var network
     @State private var featuredPick: Item?
     @State private var continueWatching: [Item] = []
     @State private var nextUp: [Item] = []
@@ -12,6 +18,7 @@ struct HomeView: View {
     @State private var discovery: [DiscoveryRow] = []
     @State private var loaded = false
     @State private var loadError: String?
+    @State private var offline = false
     @State private var playbackItem: Item?
     @State private var heroLogoAspect: Double?
 
@@ -20,18 +27,22 @@ struct HomeView: View {
             ZStack {
                 GauzeBackground(
                     url: gauzeURL,
-                    scrimAlphaScale: heroBackdropURL != nil ? 0.9 : 1.0
+                    scrimAlphaScale: heroItem != nil ? 0.9 : 1.0
                 )
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
-                        if let hero = featuredPick {
+                        if let hero = heroItem {
                             heroView(hero, width: proxy.size.width)
                         } else {
                             // No hero art to run under the status bar; keep
                             // the rows out of it.
                             Color.clear.frame(height: proxy.safeAreaInsets.top)
                         }
-                        rows
+                        if offline {
+                            offlineRows(width: proxy.size.width)
+                        } else {
+                            rows
+                        }
                     }
                     .padding(.bottom, 32)
                 }
@@ -55,6 +66,10 @@ struct HomeView: View {
         .overlay {
             if appEnvironment.client == nil {
                 ErrorState(message: "Enter your Loom server address in Settings.", retry: nil)
+            } else if offline {
+                // The offline rows (or the notice standing in for them) are
+                // part of the page, not an overlay over it.
+                EmptyView()
             } else if !loaded, loadError == nil {
                 LoadingState()
             } else if let loadError, isEmpty {
@@ -63,7 +78,9 @@ struct HomeView: View {
                 EmptyState(message: "Play something and it will show up here.")
             }
         }
-        .task { await load() }
+        // Keyed on reach so walking back onto the LAN recovers on its own,
+        // rather than leaving the offline page up until something asks.
+        .task(id: network.reach) { await load() }
         .refreshable { await load() }
     }
 
@@ -74,21 +91,47 @@ struct HomeView: View {
 
     // MARK: - Hero
 
+    /// Offline the hero is a download; online it is Loom's featured pick.
+    private var heroItem: Item? {
+        guard offline else { return featuredPick }
+        let catalog = downloads.offlineCatalog
+        return catalog.continueWatching().first ?? catalog.recent().first
+    }
+
     private var heroBackdropURL: URL? {
-        guard let hero = featuredPick else { return nil }
+        guard let hero = heroItem else { return nil }
+        if offline {
+            return downloads.artworkURL(for: hero.id, kind: .backdrop)
+                ?? downloads.artworkURL(for: hero.id, kind: .thumb)
+                ?? downloads.posterURL(for: hero.id)
+        }
         return appEnvironment.client?.imageURL(id: hero.backdropImageId, tag: hero.backdropImageTag, width: 960)
             ?? appEnvironment.client?.imageURL(id: hero.thumbImageId, tag: hero.thumbImageTag, width: 960)
     }
 
     private var gauzeURL: URL? {
-        guard let hero = featuredPick, let client = appEnvironment.client else { return nil }
+        guard let hero = heroItem else { return nil }
+        if offline {
+            // The saved backdrop is the 1440 bucket, but a blur has no detail
+            // to lose either way.
+            return downloads.artworkURL(for: hero.id, kind: .backdrop)
+                ?? downloads.posterURL(for: hero.id)
+        }
+        guard let client = appEnvironment.client else { return nil }
         // The gauze is blurred past recognition; the 240 bucket is plenty.
         return client.imageURL(id: hero.backdropImageId, tag: hero.backdropImageTag, width: 240)
             ?? client.imageURL(id: hero.posterImageId, tag: hero.posterImageTag, width: 240)
     }
 
+    private func heroLogoURL(_ hero: Item) -> URL? {
+        if offline {
+            return downloads.artworkURL(for: hero.id, kind: .logo)
+        }
+        return appEnvironment.client?.imageURL(id: hero.logoImageId, tag: hero.logoImageTag, width: 480)
+    }
+
     private func heroView(_ hero: Item, width: CGFloat) -> some View {
-        let logoURL = appEnvironment.client?.imageURL(id: hero.logoImageId, tag: hero.logoImageTag, width: 480)
+        let logoURL = heroLogoURL(hero)
         let lane = logoLaneHeight(aspect: heroLogoAspect)
         let solidLeft: CGFloat = logoURL != nil ? lane + 76 : 160
         return BiasCutBackdrop(url: heroBackdropURL, width: width, solidLeft: solidLeft) {
@@ -124,7 +167,7 @@ struct HomeView: View {
 
     private func heroMeta(_ hero: Item, width: CGFloat) -> some View {
         let hour = Calendar.current.component(.hour, from: Date())
-        var parts = [featuredPickLabel(hour: hour)]
+        var parts = [offline ? offlineHeroLabel(hero) : featuredPickLabel(hour: hour)]
         if let year = hero.year, year > 0 { parts.append(String(year)) }
         if let genre = hero.genres?.first?.name { parts.append(genre) }
         return VStack(alignment: .leading, spacing: 0) {
@@ -138,6 +181,12 @@ struct HomeView: View {
                     .frame(width: width * 0.6)
             }
         }
+    }
+
+    /// Offline there is no pick of the day to name, so the hero says why it is
+    /// the one standing there.
+    private func offlineHeroLabel(_ hero: Item) -> String {
+        progressFraction(hero) != nil ? "Continue watching" : "Downloaded"
     }
 
     // MARK: - Rows
@@ -171,6 +220,62 @@ struct HomeView: View {
         }
     }
 
+    // The width is passed in rather than left to `maxWidth: .infinity`: Home's
+    // rows are horizontal scrollers, so the column they sit in is proposed no
+    // width of its own and a full-width row would size to its ideal instead.
+    @ViewBuilder
+    private func offlineRows(width: CGFloat) -> some View {
+        let catalog = downloads.offlineCatalog
+        let started = catalog.continueWatching()
+        let downloaded = catalog.recent()
+        let lineWidth = max(width - 40, 0)
+        if started.isEmpty && downloaded.isEmpty {
+            OfflineNotice(
+                reason: network.reason + " Nothing is downloaded to this device yet.",
+                onRetry: retry
+            )
+            .frame(width: lineWidth)
+            .padding(.horizontal, 20)
+            .padding(.top, 24)
+        } else {
+            OfflineBanner(reason: network.reason, onRetry: retry)
+                .frame(width: lineWidth)
+                .padding(.horizontal, 20)
+                .padding(.top, 16)
+            if !started.isEmpty {
+                thumbRow(
+                    title: "Continue Watching",
+                    items: started,
+                    caption: { offlineCaption($0, catalog: catalog) }
+                )
+            }
+            if !downloaded.isEmpty {
+                posterRow(
+                    title: "Downloaded",
+                    items: downloaded,
+                    labelColor: .violet,
+                    badge: { item in
+                        item.kind == "show"
+                            ? catalog.episodes(showId: item.id).filter { !($0.progress?.played ?? false) }.count
+                            : nil
+                    }
+                )
+            }
+        }
+    }
+
+    /// Like the online caption, but naming the show as well: offline nothing
+    /// else on the row does.
+    private func offlineCaption(_ item: Item, catalog: OfflineCatalog) -> String {
+        [
+            catalog.show(forEpisode: item.id)?.title,
+            episodeLabel(item),
+            item.kind == "episode" ? item.title : nil,
+            remainingLabel(item),
+        ]
+        .compactMap { $0 }.joined(separator: " · ")
+    }
+
     private func thumbRow(title: String, items: [Item], caption: @escaping (Item) -> String) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HomeRowLabel(text: title)
@@ -189,10 +294,13 @@ struct HomeView: View {
                             NavigationLink(value: item) {
                                 Label("Go to Details", systemImage: "info.circle")
                             }
-                            Button("Mark Watched", systemImage: "checkmark.circle") {
-                                Task {
-                                    try? await appEnvironment.client?.setPlayed(id: item.id, true)
-                                    await load()
+                            // A write to Loom, which offline would only fail.
+                            if !offline {
+                                Button("Mark Watched", systemImage: "checkmark.circle") {
+                                    Task {
+                                        try? await appEnvironment.client?.setPlayed(id: item.id, true)
+                                        await load()
+                                    }
                                 }
                             }
                         }
@@ -204,7 +312,12 @@ struct HomeView: View {
         .padding(.top, 22)
     }
 
-    private func posterRow(title: String, items: [Item], labelColor: Color) -> some View {
+    private func posterRow(
+        title: String,
+        items: [Item],
+        labelColor: Color,
+        badge: ((Item) -> Int?)? = nil
+    ) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HomeRowLabel(text: title, color: labelColor)
                 .padding(.horizontal, 20)
@@ -212,7 +325,7 @@ struct HomeView: View {
                 LazyHStack(alignment: .top, spacing: 10) {
                     ForEach(items) { item in
                         NavigationLink(value: item) {
-                            PosterCard(item: item)
+                            PosterCard(item: item, badgeCount: badge?(item))
                                 .frame(width: 150)
                         }
                         .buttonStyle(.plain)
@@ -226,8 +339,20 @@ struct HomeView: View {
 
     // MARK: - Data
 
+    private func retry() {
+        network.recheck()
+        Task { await load() }
+    }
+
     private func load() async {
         guard let client = appEnvironment.client else {
+            loaded = true
+            return
+        }
+        // A settled offline verdict is answered from the downloads without
+        // spending a request that has nowhere to go.
+        if network.reach == .offline {
+            offline = true
             loaded = true
             return
         }
@@ -253,8 +378,16 @@ struct HomeView: View {
                 recentlyPlayed: try await recentlyPlayedPage.items,
                 epochDay: epochDay
             )
+            offline = false
+            // The server answered, so anything queued while offline can land.
+            await downloads.flushPendingProgress(client: client)
         } catch {
-            if isEmpty { loadError = error.localizedDescription }
+            if isOfflineError(error) {
+                network.markUnreachable()
+                offline = true
+            } else if isEmpty {
+                loadError = error.localizedDescription
+            }
         }
         loaded = true
     }

@@ -8,9 +8,14 @@ struct PosterCard: View {
     let item: Item
     /// Badge, progress, and missing-art tint — the screen's thread color.
     var thread: Color = .ember
+    /// Overrides the item's own unwatched tally. Offline a show's snapshot
+    /// counts episodes that are not on this device, so the caller recounts
+    /// from what actually is.
+    var badgeCount: Int?
 
     @Environment(AppEnvironment.self) private var appEnvironment
     @Environment(DownloadManager.self) private var downloads
+    @Environment(NetworkPolicy.self) private var network
 
     var body: some View {
         ZStack {
@@ -23,7 +28,7 @@ struct PosterCard: View {
         .aspectRatio(2 / 3, contentMode: .fit)
         .clipShape(RoundedRectangle(cornerRadius: 10))
         .overlay(alignment: .topTrailing) {
-            if let unwatched = item.unwatchedCount, unwatched > 0 {
+            if let unwatched = badgeCount ?? item.unwatchedCount, unwatched > 0 {
                 BobbinBadge(count: unwatched, color: thread)
                     .padding(6)
             }
@@ -40,10 +45,15 @@ struct PosterCard: View {
     }
 
     private var posterURL: URL? {
+        // Offline the poster is a file beside the download; a Loom URL would
+        // only spend the fetch to fail.
+        if network.reach == .offline {
+            return downloads.posterURL(for: item.id)
+        }
         if let url = appEnvironment.client?.imageURL(id: item.posterImageId, tag: item.posterImageTag, width: 480) {
             return url
         }
-        // Offline fallback: the poster saved beside the download.
+        // No server configured: the poster saved beside the download.
         return downloads.posterURL(for: item.id)
     }
 }
@@ -57,12 +67,14 @@ struct ThumbCard: View {
     var width: CGFloat = 240
 
     @Environment(AppEnvironment.self) private var appEnvironment
+    @Environment(DownloadManager.self) private var downloads
+    @Environment(NetworkPolicy.self) private var network
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             ZStack {
                 Color.surface1
-                if let url = appEnvironment.client?.imageURL(id: item.thumbImageId, tag: item.thumbImageTag, width: 480) {
+                if let url = thumbURL {
                     CachedImage(url: url, contentMode: .fill)
                 } else {
                     MissingArt(title: item.title, tint: thread)
@@ -88,5 +100,14 @@ struct ThumbCard: View {
             }
         }
         .frame(width: width, alignment: .leading)
+    }
+
+    /// Offline the screencap saved beside the download, falling back to the
+    /// poster: a cropped poster still says which title this is.
+    private var thumbURL: URL? {
+        if network.reach == .offline {
+            return downloads.artworkURL(for: item.id, kind: .thumb) ?? downloads.posterURL(for: item.id)
+        }
+        return appEnvironment.client?.imageURL(id: item.thumbImageId, tag: item.thumbImageTag, width: 480)
     }
 }

@@ -237,18 +237,97 @@ struct ErrorState: View {
                 .foregroundStyle(Color.muted)
                 .multilineTextAlignment(.center)
             if let retry {
-                Button("Try again", action: retry)
-                    .font(.labelLarge)
-                    .foregroundStyle(Color.ink)
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 11)
-                    .background(Color.ink.opacity(0.08), in: Capsule())
-                    .buttonStyle(.plain)
+                PillButton(title: "Try again", action: retry)
                     .padding(.top, 6)
             }
         }
         .padding(32)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// The quiet capsule action used by the shared states.
+struct PillButton: View {
+    var title: String
+    var action: () -> Void
+
+    var body: some View {
+        Button(title, action: action)
+            .font(.labelLarge)
+            .foregroundStyle(Color.ink)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 11)
+            .background(Color.ink.opacity(0.08), in: Capsule())
+            .buttonStyle(.plain)
+            .hoverEffect(.lift)
+    }
+}
+
+// MARK: - Offline
+
+/// Offline as a place, not a failure. Unlike ErrorState this neither fills the
+/// screen nor centers itself: whatever is genuinely on the device goes
+/// underneath it, so the app still has something to show rather than only an
+/// apology. Callers own the horizontal margins.
+struct OfflineNotice: View {
+    var reason: String
+    var onRetry: () -> Void
+    var onSettings: (() -> Void)?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // The amber thread, cut short: the same signal the banner's dot
+            // carries, in the voice MissingArt uses for its rule.
+            RoundedRectangle(cornerRadius: 1.5)
+                .fill(Color.amber.opacity(0.85))
+                .frame(width: 44, height: 3)
+            Text("Offline")
+                .font(.displaySmall)
+                .foregroundStyle(Color.ink)
+                .padding(.top, 12)
+            Text(reason)
+                .font(.bodyMedium)
+                .foregroundStyle(Color.muted)
+                .padding(.top, 8)
+            HStack(spacing: 12) {
+                PillButton(title: "Try again", action: onRetry)
+                if let onSettings {
+                    PillButton(title: "Settings", action: onSettings)
+                }
+            }
+            .padding(.top, 16)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// Offline once there is something to show. OfflineNotice is for a screen with
+/// nothing on it; this is one line above a screen full of downloads, so being
+/// offline reads as a condition rather than as the page's subject.
+struct OfflineBanner: View {
+    var reason: String
+    var onRetry: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(Color.amber)
+                .frame(width: 6, height: 6)
+            Text(reason)
+                .font(.labelLarge)
+                .foregroundStyle(Color.muted)
+                .lineLimit(2)
+            Spacer(minLength: 8)
+            Button("Try again", action: onRetry)
+                .font(.labelLarge)
+                .foregroundStyle(Color.ink)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .background(Color.ink.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+                .buttonStyle(.plain)
+                .hoverEffect(.lift)
+        }
+        .frame(maxWidth: .infinity)
     }
 }
 

@@ -6,6 +6,13 @@ struct PersonSearch: Hashable {
     let name: String
 }
 
+/// What a detail reload keys on: a different item, or a changed verdict about
+/// the network — each means the screen is drawn from a different source.
+private struct DetailLoad: Equatable {
+    let itemId: Int64
+    let reach: NetworkPolicy.Reach
+}
+
 /// Episodes show their own screencap; everything else leads with the
 /// backdrop (the poster only as a last resort). Shared with RootView's
 /// `-artwork` debug push, which has no detail screen to ask.
@@ -28,11 +35,16 @@ struct ItemDetailView: View {
 
     @Environment(AppEnvironment.self) private var appEnvironment
     @Environment(DownloadManager.self) private var downloads
+    @Environment(NetworkPolicy.self) private var network
     @State private var item: Item?
     @State private var seasons: [Item] = []
     @State private var selectedSeasonId: Int64?
     @State private var episodes: [Item] = []
     @State private var loadError: String?
+    @State private var offline = false
+    /// Season id -> episodes on this device still unwatched. Offline a
+    /// season's own tally counts episodes that are not here at all.
+    @State private var offlineUnwatched: [Int64: Int] = [:]
     @State private var playbackItem: Item?
     @State private var accent = WovenAccent.neutral
     @State private var threads: [RGB] = []
@@ -66,6 +78,16 @@ struct ItemDetailView: View {
                 // grey edge haze must stay out of it.
                 .ignoresSafeArea(edges: .top)
                 .scrollEdgeEffectHidden(true, for: .top)
+            } else if offline {
+                // Nothing downloaded and no Loom: there is no version of this
+                // title to show, so say why rather than blame the server.
+                OfflineNotice(
+                    reason: network.reason + " This title is not downloaded to this device.",
+                    onRetry: { network.recheck(); Task { await load() } }
+                )
+                .padding(.horizontal, 20)
+                .frame(maxHeight: .infinity, alignment: .top)
+                .padding(.top, 24)
             } else if let loadError {
                 ErrorState(message: loadError) { Task { await load() } }
             } else {
@@ -101,7 +123,9 @@ struct ItemDetailView: View {
                         // Artwork above the watched toggle, matching the
                         // Android app's menu order.
                         // Episodes inherit their show's artwork; no picker.
-                        if item.kind != "episode" {
+                        // The picker is a Loom browser and a Loom write, so
+                        // offline there is nothing behind it.
+                        if item.kind != "episode", !offline {
                             Button {
                                 artworkPick = ArtworkPick(
                                     itemId: item.id, title: item.title,
@@ -118,7 +142,9 @@ struct ItemDetailView: View {
                 }
             }
         }
-        .task(id: itemId) { await load() }
+        // Keyed on reach as well as the item: walking back onto the LAN redraws
+        // this screen from Loom instead of from the snapshot.
+        .task(id: DetailLoad(itemId: itemId, reach: network.reach)) { await load() }
         // Refresh on the trip back from a pushed screen — the artwork picker
         // changes image tags, and tags drive every artwork URL. The initial
         // load stays with .task (item is still nil on first appearance).
@@ -131,7 +157,9 @@ struct ItemDetailView: View {
     // MARK: - Head
 
     private func head(for item: Item, width: CGFloat) -> some View {
-        let logoURL = appEnvironment.client?.imageURL(id: item.logoImageId, tag: item.logoImageTag, width: 480)
+        let logoURL = offline
+            ? downloads.artworkURL(for: item.id, kind: .logo)
+            : appEnvironment.client?.imageURL(id: item.logoImageId, tag: item.logoImageTag, width: 480)
         let lane = logoLaneHeight(aspect: logoAspect)
         let solidLeft: CGFloat = logoURL != nil ? lane + 22 : 116
         return BiasCutBackdrop(url: detailArtURL(width: 960), width: width, solidLeft: solidLeft) {
@@ -260,7 +288,9 @@ struct ItemDetailView: View {
             if let seasons = item.totalSeasons, seasons > 0 {
                 parts.append(seasons == 1 ? "1 season" : "\(seasons) seasons")
             }
-            if let unwatched = item.unwatchedCount, unwatched > 0 {
+            // Offline this counts episodes that are not on the device, so the
+            // line leaves it out rather than promising titles that cannot play.
+            if !offline, let unwatched = item.unwatchedCount, unwatched > 0 {
                 parts.append("\(unwatched) unwatched")
             }
         }
@@ -346,19 +376,22 @@ struct ItemDetailView: View {
             }
             .buttonStyle(.plain)
         } else {
+            // Starting a download needs Loom to hand over a stream URL;
+            // removing bytes that are already here does not.
             Button {
                 guard let client = appEnvironment.client else { return }
                 Task { await downloads.start(item: item, client: client) }
             } label: {
                 Image(systemName: "arrow.down")
                     .font(.labelLarge)
-                    .foregroundStyle(accent.fill)
+                    .foregroundStyle(accent.fill.opacity(offline ? 0.4 : 1))
                     .padding(.horizontal, 18)
                     .frame(height: 48)
-                    .background(accent.fill.opacity(0.22), in: shape)
+                    .background(accent.fill.opacity(offline ? 0.10 : 0.22), in: shape)
             }
             .buttonStyle(.plain)
             .hoverEffect(.lift)
+            .disabled(offline)
         }
     }
 
@@ -497,7 +530,7 @@ struct ItemDetailView: View {
 
     private func seasonChip(_ season: Item) -> some View {
         let selected = season.id == selectedSeasonId
-        let left = season.unwatchedCount ?? 0
+        let left = offline ? (offlineUnwatched[season.id] ?? 0) : (season.unwatchedCount ?? 0)
         return Button {
             selectedSeasonId = season.id
             Task { await loadEpisodes(of: season.id) }
@@ -527,7 +560,7 @@ struct ItemDetailView: View {
             HStack(alignment: .top, spacing: 14) {
                 ZStack {
                     Color.surface1
-                    if let url = appEnvironment.client?.imageURL(id: episode.thumbImageId, tag: episode.thumbImageTag, width: 480) {
+                    if let url = episodeThumbURL(episode) {
                         CachedImage(url: url, contentMode: .fill)
                     }
                 }
@@ -576,6 +609,14 @@ struct ItemDetailView: View {
             Button("Play", systemImage: "play.fill") { playbackItem = episode }
             watchedToggle(for: episode)
         }
+    }
+
+    private func episodeThumbURL(_ episode: Item) -> URL? {
+        if offline {
+            return downloads.artworkURL(for: episode.id, kind: .thumb)
+                ?? downloads.posterURL(for: episode.id)
+        }
+        return appEnvironment.client?.imageURL(id: episode.thumbImageId, tag: episode.thumbImageTag, width: 480)
     }
 
     private func episodeRowTitle(_ episode: Item) -> String {
@@ -657,6 +698,8 @@ struct ItemDetailView: View {
         }
         .buttonStyle(.plain)
         .hoverEffect(.highlight)
+        // The search behind this card can only reach Loom's credits index.
+        .disabled(offline)
     }
 
     // MARK: - Watched toggle
@@ -678,21 +721,39 @@ struct ItemDetailView: View {
                 systemImage: watched ? "checkmark.circle.fill" : "checkmark.circle"
             )
         }
+        // A write to Loom, which offline would only fail.
+        .disabled(offline)
     }
 
     // MARK: - Data
 
     private func detailArtURL(width: Int) -> URL? {
-        guard let item, let client = appEnvironment.client else { return nil }
+        guard let item else { return nil }
+        if offline {
+            if item.kind == "episode", let thumb = downloads.artworkURL(for: item.id, kind: .thumb) {
+                return thumb
+            }
+            return downloads.artworkURL(for: item.id, kind: .backdrop)
+                ?? downloads.artworkURL(for: item.id, kind: .thumb)
+                ?? downloads.posterURL(for: item.id)
+        }
+        guard let client = appEnvironment.client else { return nil }
         return Takeup.detailArtURL(for: item, client: client, width: width)
     }
 
     private func load() async {
         guard let client = appEnvironment.client else { return }
+        // A settled offline verdict is answered from the snapshots without
+        // spending a request that has nowhere to go.
+        if network.reach == .offline {
+            await loadOffline()
+            return
+        }
         loadError = nil
         do {
             let loaded = try await client.item(id: itemId)
             item = loaded
+            offline = false
             if loaded.kind == "show" {
                 let children = try await client.children(of: itemId).items
                 seasons = children.filter { $0.kind == "season" }
@@ -712,12 +773,57 @@ struct ItemDetailView: View {
             }
             await resolveThreads()
         } catch {
+            if isOfflineError(error) {
+                network.markUnreachable()
+                await loadOffline()
+                return
+            }
             loadError = error.localizedDescription
         }
         dressed = true
     }
 
+    /// The same screen over the offline catalog. A show is browsable with no
+    /// Loom because its seasons were captured with the episodes beneath it;
+    /// what is missing is only what was never downloaded.
+    private func loadOffline() async {
+        let catalog = downloads.offlineCatalog
+        let snapshot = catalog.item(itemId)
+        item = snapshot
+        loadError = nil
+        offline = true
+        if let snapshot, snapshot.kind == "show" {
+            seasons = catalog.children(snapshot.id)
+            offlineUnwatched = Dictionary(uniqueKeysWithValues: seasons.map { season in
+                (season.id, catalog.children(season.id).filter { !($0.progress?.played ?? false) }.count)
+            })
+            // Land on the season holding the next unwatched episode on this
+            // device; specials never stand in front of a pilot.
+            let regular = seasons.filter { ($0.seasonNumber ?? 0) != 0 }
+            let target = regular.first { (offlineUnwatched[$0.id] ?? 0) > 0 }
+                ?? regular.first ?? seasons.first
+            if selectedSeasonId == nil || !seasons.contains(where: { $0.id == selectedSeasonId }) {
+                selectedSeasonId = target?.id
+            }
+            episodes = selectedSeasonId.map { catalog.children($0) } ?? []
+        } else if let snapshot, snapshot.kind == "season" {
+            seasons = []
+            episodes = catalog.children(snapshot.id)
+        } else {
+            seasons = []
+            episodes = []
+        }
+        if snapshot != nil {
+            await resolveThreads()
+        }
+        dressed = true
+    }
+
     private func loadEpisodes(of seasonId: Int64) async {
+        if offline {
+            episodes = downloads.offlineCatalog.children(seasonId)
+            return
+        }
         guard let client = appEnvironment.client else { return }
         episodes = (try? await client.children(of: seasonId).items) ?? []
     }

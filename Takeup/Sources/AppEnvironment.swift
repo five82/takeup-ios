@@ -8,13 +8,26 @@ import Observation
 final class AppEnvironment {
     private static let serverKey = "loom.server.url"
 
+    /// Owned here so there is exactly one; TakeupApp injects it into the
+    /// SwiftUI environment for screens to read.
+    let network = NetworkPolicy()
+
     var serverURLString: String {
-        didSet { UserDefaults.standard.set(serverURLString, forKey: Self.serverKey) }
+        didSet {
+            UserDefaults.standard.set(serverURLString, forKey: Self.serverKey)
+            updateNetworkAddress()
+        }
     }
 
     init() {
         // No default: the server address lives in Settings, never in the repo.
         serverURLString = UserDefaults.standard.string(forKey: Self.serverKey) ?? ""
+        updateNetworkAddress()
+    }
+
+    private func updateNetworkAddress() {
+        network.serverURL = serverURL
+        network.recheck()
     }
 
     var serverURL: URL? {
@@ -26,11 +39,13 @@ final class AppEnvironment {
         guard !raw.isEmpty else { return nil }
         if !raw.contains("://") { raw = "http://" + raw }
         guard var components = URLComponents(string: raw) else { return nil }
-        if components.port == nil { components.port = 8097 }
+        // Only cleartext LAN addresses get Loom's default port. An https name
+        // (a ts.net host, say) is already whole, and :8097 would break it.
+        if components.scheme == "http", components.port == nil { components.port = 8097 }
         return components.url
     }
 
     var client: LoomClient? {
-        serverURL.map { LoomClient(baseURL: $0) }
+        serverURL.map { LoomClient(baseURL: $0, blocked: network.blockedGate) }
     }
 }

@@ -4,10 +4,13 @@ import SwiftUI
 /// poster, the title, its context line, and a kind tag.
 struct SearchView: View {
     @Environment(AppEnvironment.self) private var appEnvironment
+    @Environment(DownloadManager.self) private var downloads
+    @Environment(NetworkPolicy.self) private var network
     @State private var query: String
     @State private var results: [Item] = []
     @State private var fuzzy = false
     @State private var searched = false
+    @State private var offline = false
 
     /// A non-empty initial query makes this a pushed person search (from a
     /// cast card) rather than the sidebar's blank search root.
@@ -20,6 +23,19 @@ struct SearchView: View {
             HouseLights(thread: .ember)
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
+                    if offline {
+                        HStack(spacing: 8) {
+                            Circle()
+                                .fill(Color.amber)
+                                .frame(width: 6, height: 6)
+                            Text("Offline · searching what is downloaded on this device")
+                                .font(.labelLarge)
+                                .foregroundStyle(Color.muted)
+                        }
+                        .padding(.horizontal, 20)
+                        .padding(.top, 12)
+                        .padding(.bottom, 4)
+                    }
                     if fuzzy && !results.isEmpty {
                         Text("Closest matches")
                             .font(.labelLarge)
@@ -49,7 +65,11 @@ struct SearchView: View {
         .searchable(text: $query, prompt: "Titles and people")
         .overlay {
             if searched && results.isEmpty && !query.isEmpty {
-                EmptyState(message: "Nothing in the library matches \"\(query)\".")
+                EmptyState(
+                    message: offline
+                        ? "Nothing downloaded to this device matches \"\(query)\"."
+                        : "Nothing in the library matches \"\(query)\"."
+                )
             }
         }
         .task(id: query) {
@@ -57,13 +77,15 @@ struct SearchView: View {
             try? await Task.sleep(for: .milliseconds(300))
             await search()
         }
+        // Walking back onto the LAN re-runs the same query against Loom.
+        .task(id: network.reach) { await search() }
     }
 
     private func resultRow(_ item: Item) -> some View {
         HStack(spacing: 14) {
             ZStack {
                 Color.surface1
-                if let url = appEnvironment.client?.imageURL(id: item.posterImageId, tag: item.posterImageTag, width: 240) {
+                if let url = posterURL(item) {
                     CachedImage(url: url, contentMode: .fill)
                 }
             }
@@ -98,16 +120,43 @@ struct SearchView: View {
         return nil
     }
 
+    private func posterURL(_ item: Item) -> URL? {
+        if offline { return downloads.posterURL(for: item.id) }
+        return appEnvironment.client?.imageURL(id: item.posterImageId, tag: item.posterImageTag, width: 240)
+    }
+
     private func search() async {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let client = appEnvironment.client, !trimmed.isEmpty else {
             results = []
             searched = false
+            offline = network.reach == .offline
             return
         }
-        guard let response = try? await client.search(query: trimmed) else { return }
-        results = response.items
-        fuzzy = response.fuzzy ?? false
+        // A settled offline verdict searches the downloads rather than
+        // spending a request that has nowhere to go.
+        if network.reach == .offline {
+            searchOffline(trimmed)
+            return
+        }
+        do {
+            let response = try await client.search(query: trimmed)
+            results = response.items
+            fuzzy = response.fuzzy ?? false
+            offline = false
+            searched = true
+        } catch {
+            if isOfflineError(error) {
+                network.markUnreachable()
+                searchOffline(trimmed)
+            }
+        }
+    }
+
+    private func searchOffline(_ trimmed: String) {
+        offline = true
+        fuzzy = false
+        results = downloads.offlineCatalog.search(trimmed)
         searched = true
     }
 }
