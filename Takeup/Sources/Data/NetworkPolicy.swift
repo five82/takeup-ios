@@ -57,6 +57,13 @@ func offlineReason(onHomeSubnet: Bool, onTailnet: Bool) -> String {
 func isOfflineError(_ error: Error) -> Bool {
     if error is LoomError { return false }
     if error is CancellationError { return false }
+    // Cancellation is the app's own doing, not the network's: SwiftUI tears a
+    // `.task` down whenever its id changes, and URLSession reports that as a
+    // URLError like any other transport failure. Reading it as offline was
+    // enough to latch the offline screen at every launch - the first probe
+    // moved reach off `unknown`, which cancelled the load already in flight,
+    // whose cancellation then "proved" the server was gone.
+    if let urlError = error as? URLError, urlError.code == .cancelled { return false }
     return error is URLError
 }
 
@@ -133,6 +140,8 @@ final class NetworkPolicy {
     // honestly say it is offline, so it must not sit on the app's timeout.
     private static let probeTimeout: TimeInterval = 1.5
     private static let probeDebounce: Duration = .milliseconds(300)
+    private static let probeAttempts = 3
+    private static let probeRetryGap: Duration = .milliseconds(250)
 
     private static let probeSession: URLSession = {
         let config = URLSessionConfiguration.ephemeral
@@ -153,15 +162,11 @@ final class NetworkPolicy {
 
     /// Re-decides from scratch. Safe to call as often as a screen likes.
     func recheck() {
-        onHomeSubnet = Self.serverHostOnLocalSubnet(serverURL)
-        onTailnet = Self.tailnetInterfaceUp()
-        let blocked = networkBlocked(onHomeSubnet: onHomeSubnet, onTailnet: onTailnet)
-        gate.set(blocked)
-
         probeTask?.cancel()
-        guard !blocked, let url = serverURL else {
-            // No route and no server are both settled without a packet.
+        guard let url = serverURL else {
+            // Nothing configured is settled without a packet.
             probeTask = nil
+            readFacts()
             reach = .offline
             return
         }
@@ -169,11 +174,40 @@ final class NetworkPolicy {
             // Path updates arrive in bursts as an interface settles, and a
             // manual retry is not worth telling apart from one of those.
             try? await Task.sleep(for: Self.probeDebounce)
-            if Task.isCancelled { return }
-            let answered = await Self.probe(url)
             guard !Task.isCancelled, let self else { return }
+            // Read after the debounce, not before it. Wi-Fi is momentarily
+            // addressless right after a launch or a wake, and judging from
+            // that first snapshot declared the app offline - with the gate
+            // shut behind it - before the interface had finished coming up.
+            self.readFacts()
+            if networkBlocked(onHomeSubnet: self.onHomeSubnet, onTailnet: self.onTailnet) {
+                // No route at all: nothing to learn from a packet.
+                self.reach = .offline
+                return
+            }
+            let answered = await Self.probe(url)
+            guard !Task.isCancelled else { return }
             self.reach = reachFrom(answered: answered, onHomeSubnet: self.onHomeSubnet)
         }
+    }
+
+    /// Where this device sits, and the gate that follows from it.
+    private func readFacts() {
+        onHomeSubnet = Self.serverHostOnLocalSubnet(serverURL)
+        onTailnet = Self.tailnetInterfaceUp()
+        gate.set(networkBlocked(onHomeSubnet: onHomeSubnet, onTailnet: onTailnet))
+    }
+
+    /// A real request answered, which is stronger evidence than any probe: the
+    /// server is up whatever a 1.5-second health check made of it. Lets one
+    /// screen's successful retry lift the whole app out of offline, instead of
+    /// leaving every other screen answering from downloads.
+    func markReachable() {
+        guard reach == .offline || reach == .unknown else { return }
+        probeTask?.cancel()
+        probeTask = nil
+        readFacts()
+        reach = onHomeSubnet ? .home : .remote
     }
 
     /// Drops straight to offline on a failed request, so a screen that has just
@@ -184,7 +218,23 @@ final class NetworkPolicy {
         reach = .offline
     }
 
+    /// One slow connect is not evidence that Loom is gone. The first LAN
+    /// request after a launch or a wake regularly outruns a timeout this
+    /// short - the radio is still associating, and the local-network
+    /// permission check adds to it - so a single attempt was deciding the
+    /// question far more often than the server actually being down.
     private static func probe(_ baseURL: URL) async -> Bool {
+        for attempt in 0..<probeAttempts {
+            if attempt > 0 {
+                try? await Task.sleep(for: probeRetryGap)
+            }
+            if Task.isCancelled { return false }
+            if await probeOnce(baseURL) { return true }
+        }
+        return false
+    }
+
+    private static func probeOnce(_ baseURL: URL) async -> Bool {
         let url = baseURL.appending(path: "api/v1/health")
         guard let (data, response) = try? await probeSession.data(from: url) else { return false }
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0

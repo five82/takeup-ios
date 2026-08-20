@@ -78,10 +78,11 @@ struct HomeView: View {
                 EmptyState(message: "Play something and it will show up here.")
             }
         }
-        // Keyed on reach so walking back onto the LAN recovers on its own,
-        // rather than leaving the offline page up until something asks.
-        .task(id: network.reach) { await load() }
-        .refreshable { await load() }
+        // Keyed on the verdict rather than on reach itself: walking back onto
+        // the LAN recovers on its own, while home-to-remote (or the first
+        // probe answering at all) leaves a load in flight alone.
+        .task(id: network.reach == .offline) { await load() }
+        .refreshable { await load(force: true) }
     }
 
     private var isEmpty: Bool {
@@ -357,17 +358,21 @@ struct HomeView: View {
 
     private func retry() {
         network.recheck()
-        Task { await load() }
+        Task { await load(force: true) }
     }
 
-    private func load() async {
+    /// `force` is what the Try again button presses: the user is asking for
+    /// the attempt itself, so a stale offline verdict must not answer for the
+    /// server. The probe is deliberately short, and a probe that gave up too
+    /// early must never be the last word.
+    private func load(force: Bool = false) async {
         guard let client = appEnvironment.client else {
             loaded = true
             return
         }
         // A settled offline verdict is answered from the downloads without
         // spending a request that has nowhere to go.
-        if network.reach == .offline {
+        if !force, network.reach == .offline {
             offline = true
             loaded = true
             return
@@ -395,6 +400,7 @@ struct HomeView: View {
                 epochDay: epochDay
             )
             offline = false
+            network.markReachable()
             // The server answered, so anything queued while offline can land.
             await downloads.flushPendingProgress(client: client)
         } catch {

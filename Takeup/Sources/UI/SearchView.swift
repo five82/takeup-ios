@@ -78,7 +78,7 @@ struct SearchView: View {
             await search()
         }
         // Walking back onto the LAN re-runs the same query against Loom.
-        .task(id: network.reach) { await search() }
+        .task(id: network.reach == .offline) { await search() }
     }
 
     private func resultRow(_ item: Item) -> some View {
@@ -144,6 +144,7 @@ struct SearchView: View {
             results = response.items
             fuzzy = response.fuzzy ?? false
             offline = false
+            network.markReachable()
             searched = true
         } catch {
             if isOfflineError(error) {

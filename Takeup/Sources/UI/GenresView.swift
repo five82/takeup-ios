@@ -57,7 +57,7 @@ struct GenresView: View {
                 LoadingState()
             }
         }
-        .task(id: network.reach) { await load() }
+        .task(id: network.reach == .offline) { await load() }
     }
 
     private var grid: some View {
@@ -131,12 +131,14 @@ struct GenresView: View {
 
     private func retry() {
         network.recheck()
-        Task { await load() }
+        Task { await load(force: true) }
     }
 
-    private func load() async {
+    /// `force` is the Try again button: the user is asking for the attempt
+    /// itself, so a stale offline verdict must not answer for the server.
+    private func load(force: Bool = false) async {
         guard let client = appEnvironment.client else { return }
-        if network.reach == .offline {
+        if !force, network.reach == .offline {
             offline = true
             loaded = true
             return
@@ -145,6 +147,7 @@ struct GenresView: View {
         do {
             genres = try await client.genres()
             offline = false
+            network.markReachable()
         } catch {
             if isOfflineError(error) {
                 network.markUnreachable()

@@ -10,7 +10,7 @@ struct PersonSearch: Hashable {
 /// the network — each means the screen is drawn from a different source.
 private struct DetailLoad: Equatable {
     let itemId: Int64
-    let reach: NetworkPolicy.Reach
+    let offline: Bool
 }
 
 /// Episodes show their own screencap; everything else leads with the
@@ -83,7 +83,7 @@ struct ItemDetailView: View {
                 // title to show, so say why rather than blame the server.
                 OfflineNotice(
                     reason: network.reason + " This title is not downloaded to this device.",
-                    onRetry: { network.recheck(); Task { await load() } }
+                    onRetry: { network.recheck(); Task { await load(force: true) } }
                 )
                 .padding(.horizontal, 20)
                 .frame(maxHeight: .infinity, alignment: .top)
@@ -142,9 +142,11 @@ struct ItemDetailView: View {
                 }
             }
         }
-        // Keyed on reach as well as the item: walking back onto the LAN redraws
-        // this screen from Loom instead of from the snapshot.
-        .task(id: DetailLoad(itemId: itemId, reach: network.reach)) { await load() }
+        // Keyed on the verdict as well as the item: walking back onto the LAN
+        // redraws this screen from Loom instead of from the snapshot, while a
+        // probe merely settling home-versus-remote leaves a load in flight
+        // alone.
+        .task(id: DetailLoad(itemId: itemId, offline: network.reach == .offline)) { await load() }
         // Refresh on the trip back from a pushed screen — the artwork picker
         // changes image tags, and tags drive every artwork URL. The initial
         // load stays with .task (item is still nil on first appearance).
@@ -745,11 +747,13 @@ struct ItemDetailView: View {
         return Takeup.detailArtURL(for: item, client: client, width: width)
     }
 
-    private func load() async {
+    /// `force` is the Try again button: the user is asking for the attempt
+    /// itself, so a stale offline verdict must not answer for the server.
+    private func load(force: Bool = false) async {
         guard let client = appEnvironment.client else { return }
         // A settled offline verdict is answered from the snapshots without
         // spending a request that has nowhere to go.
-        if network.reach == .offline {
+        if !force, network.reach == .offline {
             await loadOffline()
             return
         }
@@ -758,6 +762,7 @@ struct ItemDetailView: View {
             let loaded = try await client.item(id: itemId)
             item = loaded
             offline = false
+            network.markReachable()
             if loaded.kind == "show" {
                 let children = try await client.children(of: itemId).items
                 seasons = children.filter { $0.kind == "season" }

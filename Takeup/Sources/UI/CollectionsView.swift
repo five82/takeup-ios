@@ -54,7 +54,7 @@ struct CollectionsView: View {
                 LoadingState()
             }
         }
-        .task(id: network.reach) { await load() }
+        .task(id: network.reach == .offline) { await load() }
     }
 
     private var grid: some View {
@@ -122,12 +122,14 @@ struct CollectionsView: View {
 
     private func retry() {
         network.recheck()
-        Task { await load() }
+        Task { await load(force: true) }
     }
 
-    private func load() async {
+    /// `force` is the Try again button: the user is asking for the attempt
+    /// itself, so a stale offline verdict must not answer for the server.
+    private func load(force: Bool = false) async {
         guard let client = appEnvironment.client else { return }
-        if network.reach == .offline {
+        if !force, network.reach == .offline {
             offline = true
             loaded = true
             return
@@ -136,6 +138,7 @@ struct CollectionsView: View {
         do {
             collections = try await client.collections()
             offline = false
+            network.markReachable()
             if let lead = collections.first?.items.first,
                let url = client.imageURL(id: lead.posterImageId, tag: lead.posterImageTag, width: 240) {
                 leadSwatches = await WovenExtractor.threads(for: url)

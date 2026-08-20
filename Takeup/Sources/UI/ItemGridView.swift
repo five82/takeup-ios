@@ -68,9 +68,10 @@ struct ItemGridView: View {
                 LoadingState()
             }
         }
-        // Keyed on reach so walking back onto the LAN refills the grid from
-        // Loom on its own.
-        .task(id: network.reach) { await reload() }
+        // Keyed on the verdict rather than on reach itself: walking back onto
+        // the LAN refills the grid from Loom on its own, while a probe merely
+        // settling home-versus-remote leaves a load in flight alone.
+        .task(id: network.reach == .offline) { await reload() }
     }
 
     /// The grid proper, shared by the online pages and the offline shelf.
@@ -163,20 +164,22 @@ struct ItemGridView: View {
 
     private func retry() {
         network.recheck()
-        Task { await reload() }
+        Task { await reload(force: true) }
     }
 
-    private func reload() async {
+    /// `force` is the Try again button: the user is asking for the attempt
+    /// itself, so a stale offline verdict must not answer for the server.
+    private func reload(force: Bool = false) async {
         items = []
         reachedEnd = false
-        await loadNextPage()
+        await loadNextPage(force: force)
     }
 
-    private func loadNextPage() async {
+    private func loadNextPage(force: Bool = false) async {
         guard !loading, !reachedEnd, let client = appEnvironment.client else { return }
         // A settled offline verdict is answered from the downloads without
         // spending a request that has nowhere to go.
-        if network.reach == .offline {
+        if !force, network.reach == .offline {
             offline = true
             return
         }
@@ -202,6 +205,7 @@ struct ItemGridView: View {
             }
             items.append(contentsOf: page)
             offline = false
+            network.markReachable()
             await loadLeadSwatches()
         } catch {
             if isOfflineError(error) {

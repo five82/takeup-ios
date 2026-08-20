@@ -89,4 +89,13 @@ struct NetworkPolicyTests {
         #expect(!isOfflineError(LoomError(statusCode: 404, serverMessage: nil)))
         #expect(!isOfflineError(CancellationError()))
     }
+
+    @Test func aRequestTheAppItselfCancelledIsNeverOffline() {
+        // SwiftUI tears a `.task` down whenever its id changes, and URLSession
+        // reports that as URLError.cancelled. Counting it as offline latched
+        // the offline screen at every launch: the first probe moved reach off
+        // `unknown`, cancelling the load already in flight, whose cancellation
+        // then stood in as proof that the server was gone.
+        #expect(!isOfflineError(URLError(.cancelled)))
+    }
 }
