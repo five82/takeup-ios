@@ -453,8 +453,8 @@ struct ItemDetailView: View {
         var badges: [String] = []
         let streams = item.media?.streams ?? []
         if let video = streams.first(where: { $0.kind == "video" }) {
-            if let width = video.width {
-                badges.append(width >= 3200 ? "4K" : (width >= 1800 ? "HD" : "SD"))
+            if let resolution = resolutionBadge(video.resolution) {
+                badges.append(resolution)
             }
             if let range = video.dynamicRange, !range.isEmpty, range.lowercased() != "sdr" {
                 badges.append(range)

@@ -45,4 +45,13 @@ struct FormatTests {
         #expect(formatClock(61) == "1:01")
         #expect(formatClock(3_671) == "1:01:11")
     }
+
+    @Test func resolutionBadgesUseServerLabels() {
+        #expect(resolutionBadge("4k") == "4K")
+        #expect(resolutionBadge("1080p") == "1080p")
+        #expect(resolutionBadge("720p") == "720p")
+        #expect(resolutionBadge("sd") == "SD")
+        #expect(resolutionBadge(nil) == nil)
+        #expect(resolutionBadge("unknown") == nil)
+    }
 }

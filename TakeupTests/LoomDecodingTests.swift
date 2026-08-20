@@ -49,6 +49,23 @@ struct LoomDecodingTests {
         #expect(item.isPlayable)
     }
 
+    @Test func streamDecodesServerResolution() throws {
+        let json = Data("""
+        {
+            "index": 0,
+            "kind": "video",
+            "codec": "hevc",
+            "width": 2880,
+            "height": 2160,
+            "resolution": "4k"
+        }
+        """.utf8)
+        let stream = try loomDecoder().decode(Stream.self, from: json)
+        #expect(stream.width == 2880)
+        #expect(stream.height == 2160)
+        #expect(stream.resolution == "4k")
+    }
+
     @Test func imageOptionDecodesSnakeCaseFields() throws {
         let json = Data("""
         {

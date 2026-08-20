@@ -37,3 +37,13 @@ func formatClock(_ seconds: Double) -> String {
         ? String(format: "%d:%02d:%02d", hours, minutes, secs)
         : String(format: "%d:%02d", minutes, secs)
 }
+
+func resolutionBadge(_ resolution: String?) -> String? {
+    switch resolution {
+    case "4k": "4K"
+    case "1080p": "1080p"
+    case "720p": "720p"
+    case "sd": "SD"
+    default: nil
+    }
+}

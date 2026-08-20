@@ -114,6 +114,7 @@ struct Stream: Codable, Hashable {
     let title: String?
     let width: Int?
     let height: Int?
+    let resolution: String?
     let channels: Int?
     let channelLayout: String?
     let dynamicRange: String?
