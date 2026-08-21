@@ -50,7 +50,6 @@ private struct TVPlayerSessionView: View {
     @State private var nextEpisode: Item?
     @State private var loadError: String?
     @State private var controlsVisible = true
-    @State private var cropped = false
     @State private var panel: ConsolePanel?
     @State private var accent = WovenAccent.neutral
     @State private var threads: [RGB] = []
@@ -78,7 +77,7 @@ private struct TVPlayerSessionView: View {
 
             SubtitleOverlay(
                 cues: model.subtitleCues,
-                aspect: cropped ? nil : model.videoAspect,
+                aspect: model.videoAspect,
                 lift: subtitleLift
             )
             .ignoresSafeArea()
@@ -287,16 +286,14 @@ private struct TVPlayerSessionView: View {
                     }
                 }
 
+                // No crop-to-fill on TV: the panel is always a standard 16:9,
+                // and non-16:9 films letterbox as the filmmaker intended.
                 HStack(spacing: 12) {
                     if model.hasMultipleAudioTracks {
                         consolePill("Audio") { panel = .audio }
                     }
                     if !model.subtitleTracks.isEmpty {
                         consolePill("CC") { panel = .subtitles }
-                    }
-                    consolePill(cropped ? "Fit" : "Fill") {
-                        cropped.toggle()
-                        model.controller?.setCropToFill(cropped)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .trailing)
