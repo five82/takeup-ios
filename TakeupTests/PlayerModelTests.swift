@@ -15,6 +15,19 @@ struct PlayerModelTests {
         #expect(model.selectedSubtitleId == 1)
     }
 
+    @Test func audioSelectorRequiresMultipleTracks() {
+        let model = PlayerModel()
+
+        model.applyTracks([makeTrack(id: 1, type: "audio")])
+        #expect(!model.hasMultipleAudioTracks)
+
+        model.applyTracks([
+            makeTrack(id: 1, type: "audio"),
+            makeTrack(id: 2, type: "audio"),
+        ])
+        #expect(model.hasMultipleAudioTracks)
+    }
+
     @Test func autoPickedImageSubtitleIsDeselected() {
         let model = PlayerModel()
         model.applyTracks([

@@ -41,6 +41,7 @@ final class PlayerModel {
     var subtitleTracks: [MPVTrack] = []
     var selectedAudioId: Int?
     var selectedSubtitleId: Int?
+    var hasMultipleAudioTracks: Bool { audioTracks.count > 1 }
     /// The cues on screen right now, drawn by SubtitleOverlay.
     var subtitleCues: [SubtitleCue] = []
     /// Display aspect of the picture, nil until the file loads.
@@ -247,7 +248,7 @@ private struct PlayerSessionView: View {
                 try? await Task.sleep(for: .seconds(2))
                 switch arguments[flag + 1] {
                 case "chapters": chaptersPresented = !chapters.isEmpty
-                case "audio": audioPresented = !model.audioTracks.isEmpty
+                case "audio": audioPresented = model.hasMultipleAudioTracks
                 case "cc": subtitlesPresented = !model.subtitleTracks.isEmpty
                 default: break
                 }
@@ -392,7 +393,7 @@ private struct PlayerSessionView: View {
                 }
 
                 HStack(spacing: 8) {
-                    if !model.audioTracks.isEmpty {
+                    if model.hasMultipleAudioTracks {
                         audioButton
                     }
                     if !model.subtitleTracks.isEmpty {
