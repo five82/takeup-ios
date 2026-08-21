@@ -100,6 +100,10 @@ xcrun simctl terminate iPad27 xyz.five82.takeup   # stops headless audio too
 
 A launched player keeps playing (audibly) in the headless simulator; terminate the app when done.
 
+`./stop-simulator.sh` shuts down every booted simulator, which also
+stops whatever is running on them. The physical iPad is not a simulator and is
+left alone.
+
 `simctl` has no touch injection. For taps and swipes (scroll checks especially), use idb — companion installed via Homebrew (`facebook/fb/idb-companion`), Python client at `~/.venvs/idb/bin/idb`. It must run with the stable Xcode selected (the beta removed SimulatorKit.framework, which the companion loads for HID), and coordinates are device points (iPad27: 834x1210 portrait). If a swipe errors about a stale companion, `pkill -f idb_companion; rm -rf /tmp/idb` and retry:
 
 ```bash
