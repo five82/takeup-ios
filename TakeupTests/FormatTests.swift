@@ -40,6 +40,35 @@ struct FormatTests {
         #expect(remainingLabel(finished) == nil)
     }
 
+    @Test func homeCardLinesPlaceAnEpisodeUnderItsShow() {
+        // The show itself is the card's heading, so it is deliberately absent
+        // from both lines rather than repeated in them.
+        let episode = makeItem(id: 1, season: 4, episode: 5, title: "The Constant")
+        #expect(episodeLine(episode) == "S4E5 · The Constant")
+        let started = makeItem(
+            id: 1, season: 4, episode: 5, title: "The Constant",
+            progress: Takeup.Progress(
+                positionMs: nil, durationMs: 60 * 60_000, played: nil,
+                resumePositionMs: 30 * 60_000, updatedAt: nil
+            )
+        )
+        #expect(continueLine(started) == "S4E5 · The Constant · 30 m left")
+    }
+
+    @Test func continueLineLeavesAMovieItsTimeAlone() {
+        // A movie's thumb already carries its title, so it gets no heading and
+        // no episode line - only what is left to watch.
+        let movie = makeItem(
+            id: 2, kind: "movie", title: "Heat",
+            progress: Takeup.Progress(
+                positionMs: nil, durationMs: 171 * 60_000, played: nil,
+                resumePositionMs: 111 * 60_000, updatedAt: nil
+            )
+        )
+        #expect(episodeLine(movie) == nil)
+        #expect(continueLine(movie) == "1 h 0 m left")
+    }
+
     @Test func clockDropsHoursWhenZero() {
         #expect(formatClock(59) == "0:59")
         #expect(formatClock(61) == "1:01")

@@ -58,10 +58,14 @@ struct PosterCard: View {
     }
 }
 
-/// 16:9 card for Continue Watching / Next Up. Loom's thumb art has the title
-/// baked in, so the single line beneath carries context, not identity.
+/// 16:9 card for Continue Watching / Next Up. A movie or show wears a thumb
+/// with its title baked in, but an episode wears its own still, so the show it
+/// belongs to has to be named in `heading`; `caption` places the episode within
+/// that show. Both are held to one line so a long title cannot push a card's
+/// text past its neighbours'.
 struct ThumbCard: View {
     let item: Item
+    var heading: String?
     var caption: String?
     var thread: Color = .ember
     var width: CGFloat = 240
@@ -91,13 +95,21 @@ struct ThumbCard: View {
             }
             .hoverEffect(.lift)
 
-            if let caption {
-                Text(caption)
-                    .font(.bodyMedium)
-                    .foregroundStyle(Color.muted)
-                    .lineLimit(2)
-                    .padding(.leading, 2)
+            VStack(alignment: .leading, spacing: 1) {
+                if let heading {
+                    Text(heading)
+                        .font(.titleSmall)
+                        .foregroundStyle(Color.ink)
+                        .lineLimit(1)
+                }
+                if let caption {
+                    Text(caption)
+                        .font(.bodyMedium)
+                        .foregroundStyle(Color.muted)
+                        .lineLimit(1)
+                }
             }
+            .padding(.leading, 2)
         }
         .frame(width: width, alignment: .leading)
     }

@@ -40,7 +40,8 @@ struct Item: Codable, Identifiable, Hashable {
     let progress: Progress?
     let episodeCount: Int?
     let unwatchedCount: Int?
-    // Present only on search results.
+    // Context for episodes listed outside their show hierarchy: search,
+    // Continue Watching, and Next Up.
     let seriesTitle: String?
     let seasonTitle: String?
 

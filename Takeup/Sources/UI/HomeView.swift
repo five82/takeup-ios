@@ -204,10 +204,8 @@ struct HomeView: View {
                 title: "Continue Watching",
                 items: continueWatching,
                 width: width,
-                caption: { item in
-                    [episodeLabel(item), item.kind == "episode" ? item.title : nil, remainingLabel(item)]
-                        .compactMap { $0 }.joined(separator: " · ")
-                }
+                heading: { $0.seriesTitle },
+                caption: { continueLine($0) }
             )
         }
         if !nextUp.isEmpty {
@@ -215,9 +213,8 @@ struct HomeView: View {
                 title: "Next Up",
                 items: nextUp,
                 width: width,
-                caption: { item in
-                    [episodeLabel(item), item.title].compactMap { $0 }.joined(separator: " · ")
-                }
+                heading: { $0.seriesTitle },
+                caption: { episodeLine($0) ?? $0.title }
             )
         }
         if !recentlyAdded.isEmpty {
@@ -255,7 +252,10 @@ struct HomeView: View {
                     title: "Continue Watching",
                     items: started,
                     width: width,
-                    caption: { offlineCaption($0, catalog: catalog) }
+                    // Offline the show comes from the downloads on the device;
+                    // Loom's series_title is not in a download's snapshot.
+                    heading: { catalog.show(forEpisode: $0.id)?.title },
+                    caption: { continueLine($0) }
                 )
             }
             if !downloaded.isEmpty {
@@ -274,19 +274,13 @@ struct HomeView: View {
         }
     }
 
-    /// Like the online caption, but naming the show as well: offline nothing
-    /// else on the row does.
-    private func offlineCaption(_ item: Item, catalog: OfflineCatalog) -> String {
-        [
-            catalog.show(forEpisode: item.id)?.title,
-            episodeLabel(item),
-            item.kind == "episode" ? item.title : nil,
-            remainingLabel(item),
-        ]
-        .compactMap { $0 }.joined(separator: " · ")
-    }
-
-    private func thumbRow(title: String, items: [Item], width: CGFloat, caption: @escaping (Item) -> String) -> some View {
+    private func thumbRow(
+        title: String,
+        items: [Item],
+        width: CGFloat,
+        heading: @escaping (Item) -> String?,
+        caption: @escaping (Item) -> String
+    ) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HomeRowLabel(text: title)
                 .padding(.horizontal, 20)
@@ -296,7 +290,7 @@ struct HomeView: View {
                         Button {
                             playbackItem = item
                         } label: {
-                            ThumbCard(item: item, caption: caption(item))
+                            ThumbCard(item: item, heading: heading(item), caption: caption(item))
                         }
                         .buttonStyle(.plain)
                         .contextMenu {
