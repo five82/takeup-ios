@@ -96,4 +96,25 @@ struct FormatTests {
         #expect(formatTimestamp("2025-12-30T14:05:00Z", timeZone: zone, locale: locale, now: now) == "Dec 30, 2025 at 9:05 AM")
         #expect(formatTimestamp("soon", timeZone: zone, locale: locale, now: now) == "soon")
     }
+
+    @Test func downloadSummaryCountsReadyActiveAndFailedWork() {
+        let entries = [
+            DownloadEntry(item: makeItem(id: 1), relativePath: "1.media", size: 1_500, downloadedAt: .now),
+            DownloadEntry(item: makeItem(id: 2), relativePath: "2.media", size: 500, downloadedAt: .now),
+        ]
+        let summary = DownloadSummary(completed: entries, activeCount: 1, failedCount: 2, freeBytes: 4_000)
+
+        #expect(summary.readyCount == 2)
+        #expect(summary.occupiedBytes == 2_000)
+        #expect(summary.totalManagedCount == 5)
+        #expect(summary.freeBytes == 4_000)
+    }
+
+    @Test func downloadedMediaTagOnlyNeedsAnUpdateWhenTheLiveVersionChanges() {
+        #expect(!downloadedMediaIsStale(storedMediaTag: "same", liveMediaTag: "same"))
+        #expect(downloadedMediaIsStale(storedMediaTag: "old", liveMediaTag: "new"))
+        #expect(downloadedMediaIsStale(storedMediaTag: nil, liveMediaTag: "new"))
+        #expect(!downloadedMediaIsStale(storedMediaTag: "stored", liveMediaTag: nil))
+        #expect(!downloadedMediaIsStale(storedMediaTag: "stored", liveMediaTag: ""))
+    }
 }

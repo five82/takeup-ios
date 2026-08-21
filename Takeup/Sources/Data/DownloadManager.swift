@@ -17,6 +17,33 @@ struct PendingProgress: Codable {
     let durationMs: Int64
 }
 
+/// A value-only view of download storage, kept separate from the manager so
+/// summary and stale-version decisions stay straightforward to test.
+struct DownloadSummary: Equatable {
+    let readyCount: Int
+    let activeCount: Int
+    let failedCount: Int
+    let occupiedBytes: Int64
+    let freeBytes: Int64?
+
+    init(completed: [DownloadEntry], activeCount: Int, failedCount: Int, freeBytes: Int64?) {
+        readyCount = completed.count
+        self.activeCount = activeCount
+        self.failedCount = failedCount
+        occupiedBytes = completed.reduce(0) { $0 + $1.size }
+        self.freeBytes = freeBytes
+    }
+
+    /// The Active section contains transfers and failed work awaiting retry.
+    var activeWorkCount: Int { activeCount + failedCount }
+    var totalManagedCount: Int { readyCount + activeWorkCount }
+}
+
+func downloadedMediaIsStale(storedMediaTag: String?, liveMediaTag: String?) -> Bool {
+    guard let liveMediaTag, !liveMediaTag.isEmpty else { return false }
+    return storedMediaTag != liveMediaTag
+}
+
 /// The artwork buckets saved alongside a download, matched to the widths the
 /// UI already requests from Loom so playback and offline browsing share a cache.
 enum ArtworkKind: String, CaseIterable {
@@ -56,6 +83,9 @@ final class DownloadManager {
     private(set) var activeProgress: [Int64: Double] = [:]
     /// Item snapshots for in-flight downloads, persisted across relaunch.
     private(set) var pendingItems: [Int64: Item] = [:]
+    /// Snapshots whose transfers failed. They stay out of OfflineCatalog: a
+    /// failed file is never playable, but its title remains retryable.
+    private(set) var failedItems: [Int64: Item] = [:]
     /// Captured seasons/shows above a downloaded episode, keyed by item id.
     private(set) var ancestors: [Int64: Item] = [:]
     /// Library id -> kind ("movies"/"shorts"/"tv"), learned whenever Loom
@@ -67,6 +97,7 @@ final class DownloadManager {
     private let directory: URL
     private let catalogURL: URL
     private let pendingItemsURL: URL
+    private let failedItemsURL: URL
     private let pendingProgressURL: URL
     private let ancestorsURL: URL
     private let libraryKindsURL: URL
@@ -79,11 +110,13 @@ final class DownloadManager {
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         catalogURL = directory.appending(path: "catalog.json")
         pendingItemsURL = directory.appending(path: "pending-items.json")
+        failedItemsURL = directory.appending(path: "failed-items.json")
         pendingProgressURL = directory.appending(path: "pending-progress.json")
         ancestorsURL = directory.appending(path: "ancestors.json")
         libraryKindsURL = directory.appending(path: "library-kinds.json")
         completed = Self.load([DownloadEntry].self, from: catalogURL) ?? []
         pendingItems = Self.load([Int64: Item].self, from: pendingItemsURL) ?? [:]
+        failedItems = Self.load([Int64: Item].self, from: failedItemsURL) ?? [:]
         pendingProgressQueue = Self.load([PendingProgress].self, from: pendingProgressURL) ?? []
         ancestors = Self.load([Int64: Item].self, from: ancestorsURL) ?? [:]
         libraryKinds = Self.load([Int64: String].self, from: libraryKindsURL) ?? [:]
@@ -109,13 +142,19 @@ final class DownloadManager {
                         self.activeProgress[itemId] = 0
                     }
                 }
-                // Drop pending snapshots with no surviving task.
+                // A background task cannot be recreated after a relaunch.
+                // Keep its snapshot as retryable failure instead of silently
+                // dropping the title from Downloads.
                 let live = Set(tasks.compactMap { $0.taskDescription.flatMap(Int64.init) })
                 for itemId in self.pendingItems.keys where !live.contains(itemId) {
+                    if let item = self.pendingItems[itemId] {
+                        self.failedItems[itemId] = item
+                    }
                     self.pendingItems[itemId] = nil
                     self.activeProgress[itemId] = nil
                 }
                 self.persistPendingItems()
+                self.persistFailedItems()
                 self.pruneAncestors()
             }
         }
@@ -130,6 +169,26 @@ final class DownloadManager {
     func localURL(for entry: DownloadEntry) -> URL {
         directory.appending(path: entry.relativePath)
     }
+
+    var completedBytesUsed: Int64 {
+        completed.reduce(0) { $0 + $1.size }
+    }
+
+    var freeSpace: Int64? {
+        try? directory.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
+            .volumeAvailableCapacityForImportantUsage
+    }
+
+    var summary: DownloadSummary {
+        DownloadSummary(
+            completed: completed,
+            activeCount: activeProgress.count,
+            failedCount: failedItems.count,
+            freeBytes: freeSpace
+        )
+    }
+
+    var totalManagedCount: Int { summary.totalManagedCount }
 
     func posterURL(for itemId: Int64) -> URL? {
         artworkURL(for: itemId, kind: .poster)
@@ -157,15 +216,23 @@ final class DownloadManager {
 
     func start(item: Item, client: LoomClient) async {
         guard entry(for: item.id) == nil, activeProgress[item.id] == nil else { return }
+        // Store the listing snapshot before asking Loom for playback metadata.
+        // It gives a queued row its real title immediately and is enough to
+        // retry if that request fails before the fuller item response arrives.
+        pendingItems[item.id] = item
+        failedItems[item.id] = nil
         activeProgress[item.id] = 0
+        persistPendingItems()
+        persistFailedItems()
         do {
             let playback = try await client.playback(id: item.id)
-            guard let url = client.streamURL(for: playback) else {
-                activeProgress[item.id] = nil
+            guard activeProgress[item.id] != nil, let url = client.streamURL(for: playback) else {
+                if activeProgress[item.id] != nil { failDownload(itemId: item.id) }
                 return
             }
             // Snapshot the full item (media, chapters, credits) for offline use.
             let full = (try? await client.item(id: item.id)) ?? item
+            guard activeProgress[item.id] != nil else { return }
             pendingItems[item.id] = full
             persistPendingItems()
 
@@ -182,7 +249,7 @@ final class DownloadManager {
                 updateLibraryKinds(libraries)
             }
         } catch {
-            activeProgress[item.id] = nil
+            failDownload(itemId: item.id)
         }
     }
 
@@ -192,7 +259,9 @@ final class DownloadManager {
         }
         activeProgress[itemId] = nil
         pendingItems[itemId] = nil
+        failedItems[itemId] = nil
         persistPendingItems()
+        persistFailedItems()
         pruneAncestors()
     }
 
@@ -203,6 +272,27 @@ final class DownloadManager {
         deleteArtwork(for: itemId)
         completed.removeAll { $0.item.id == itemId }
         persistCatalog()
+        pruneAncestors()
+    }
+
+    func removeAll() {
+        session.getAllTasks { tasks in
+            tasks.forEach { $0.cancel() }
+        }
+        for entry in completed {
+            try? FileManager.default.removeItem(at: localURL(for: entry))
+        }
+        let managedIds = Set(completed.map(\.item.id))
+            .union(pendingItems.keys)
+            .union(failedItems.keys)
+        for itemId in managedIds { deleteArtwork(for: itemId) }
+        completed = []
+        activeProgress = [:]
+        pendingItems = [:]
+        failedItems = [:]
+        persistCatalog()
+        persistPendingItems()
+        persistFailedItems()
         pruneAncestors()
     }
 
@@ -217,8 +307,16 @@ final class DownloadManager {
         let item = pendingItems[itemId] ?? completed.first { $0.item.id == itemId }?.item
         activeProgress[itemId] = nil
         pendingItems[itemId] = nil
+        failedItems[itemId] = nil
         persistPendingItems()
-        guard let item else { return }
+        persistFailedItems()
+        guard let item else {
+            // A cancel/remove-all can race a just-finished background task.
+            // Its delegate has already moved the file, so discard it here
+            // rather than leaving untracked bytes on disk.
+            try? FileManager.default.removeItem(at: directory.appending(path: relativePath))
+            return
+        }
         completed.removeAll { $0.item.id == itemId }
         completed.append(DownloadEntry(item: item, relativePath: relativePath, size: size, downloadedAt: Date()))
         completed.sort { $0.downloadedAt > $1.downloadedAt }
@@ -227,9 +325,15 @@ final class DownloadManager {
     }
 
     func failDownload(itemId: Int64) {
+        // Cancellation removes the pending snapshot first. The URLSession
+        // cancellation callback arrives later, so this guard keeps a user
+        // cancellation from being resurrected as a failed download.
+        guard let item = pendingItems[itemId] else { return }
         activeProgress[itemId] = nil
         pendingItems[itemId] = nil
+        failedItems[itemId] = item
         persistPendingItems()
+        persistFailedItems()
         pruneAncestors()
     }
 
@@ -328,6 +432,7 @@ final class DownloadManager {
 
     private func persistCatalog() { persist(completed, to: catalogURL) }
     private func persistPendingItems() { persist(pendingItems, to: pendingItemsURL) }
+    private func persistFailedItems() { persist(failedItems, to: failedItemsURL) }
 
     private func persist(_ value: some Encodable, to url: URL) {
         if let data = try? JSONEncoder().encode(value) {

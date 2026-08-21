@@ -54,6 +54,8 @@ struct ItemDetailView: View {
     @State private var logoAspect: Double?
     @State private var castExpanded = false
     @State private var artworkPick: ArtworkPick?
+    @State private var removalEntry: DownloadEntry?
+    @State private var showRemovalConfirmation = false
     @Environment(\.paneWidth) private var paneWidth
 
     var body: some View {
@@ -115,6 +117,17 @@ struct ItemDetailView: View {
         }
         .fullScreenCover(item: $playbackItem, onDismiss: { Task { await load() } }) { playable in
             PlayerScreen(item: playable)
+        }
+        .alert("Remove \(removalEntry?.item.title ?? "download")?", isPresented: $showRemovalConfirmation) {
+            Button("Remove", role: .destructive) {
+                if let removalEntry { downloads.remove(removalEntry.item.id) }
+                removalEntry = nil
+            }
+            Button("Keep", role: .cancel) { removalEntry = nil }
+        } message: {
+            if let removalEntry {
+                Text("Remove \(ByteCountFormatter.string(fromByteCount: removalEntry.size, countStyle: .file)) from this iPad? It will no longer play offline.")
+            }
         }
         .toolbar {
             if let item {
@@ -341,42 +354,72 @@ struct ItemDetailView: View {
     @ViewBuilder
     private func downloadSegment(for item: Item) -> some View {
         let shape = UnevenRoundedRectangle(topLeadingRadius: 6, bottomLeadingRadius: 6, bottomTrailingRadius: 24, topTrailingRadius: 24)
-        if downloads.entry(for: item.id) != nil {
-            Menu {
-                Button(role: .destructive) {
+        if let entry = downloads.entry(for: item.id) {
+            if !offline, downloadedMediaIsStale(storedMediaTag: entry.item.mediaTag, liveMediaTag: item.mediaTag) {
+                Button {
+                    guard let client = appEnvironment.client else { return }
                     downloads.remove(item.id)
+                    Task { await downloads.start(item: item, client: client) }
                 } label: {
-                    Label("Remove Download", systemImage: "trash")
+                    Label("Update", systemImage: "arrow.down.circle")
+                        .font(.labelLarge)
+                        .foregroundStyle(accent.fill)
+                        .padding(.horizontal, 16)
+                        .frame(height: 48)
+                        .background(accent.fill.opacity(0.22), in: shape)
                 }
-            } label: {
-                Image(systemName: "checkmark")
-                    .font(.labelLarge)
-                    .foregroundStyle(accent.fill)
-                    .padding(.horizontal, 18)
-                    .frame(height: 48)
-                    .background(accent.fill.opacity(0.22), in: shape)
+                .buttonStyle(.plain)
+                .hoverEffect(.lift)
+            } else {
+                Button {
+                    removalEntry = entry
+                    showRemovalConfirmation = true
+                } label: {
+                    Label("Downloaded", systemImage: "checkmark")
+                        .font(.labelLarge)
+                        .foregroundStyle(accent.fill)
+                        .padding(.horizontal, 16)
+                        .frame(height: 48)
+                        .background(accent.fill.opacity(0.22), in: shape)
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
         } else if let fraction = downloads.activeProgress[item.id] {
             Button {
                 downloads.cancel(item.id)
             } label: {
-                // A determinate ring keeps the pill's width steady while the
-                // transfer runs; tapping cancels.
-                ZStack {
-                    Circle()
-                        .stroke(accent.fill.opacity(0.25), lineWidth: 2.5)
-                    Circle()
-                        .trim(from: 0, to: max(fraction, 0.02))
-                        .stroke(accent.fill, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
-                        .rotationEffect(.degrees(-90))
+                HStack(spacing: 7) {
+                    ZStack {
+                        Circle().stroke(accent.fill.opacity(0.25), lineWidth: 2.5)
+                        Circle()
+                            .trim(from: 0, to: max(fraction, 0.02))
+                            .stroke(accent.fill, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                            .rotationEffect(.degrees(-90))
+                    }
+                    .frame(width: 18, height: 18)
+                    Text("Cancel")
                 }
-                .frame(width: 20, height: 20)
-                .padding(.horizontal, 18)
+                .font(.labelLarge)
+                .foregroundStyle(accent.fill)
+                .padding(.horizontal, 16)
                 .frame(height: 48)
                 .background(accent.fill.opacity(0.22), in: shape)
             }
             .buttonStyle(.plain)
+        } else if downloads.failedItems[item.id] != nil {
+            Button {
+                guard let client = appEnvironment.client else { return }
+                Task { await downloads.start(item: item, client: client) }
+            } label: {
+                Label("Retry", systemImage: "arrow.clockwise")
+                    .font(.labelLarge)
+                    .foregroundStyle(accent.fill.opacity(offline ? 0.4 : 1))
+                    .padding(.horizontal, 16)
+                    .frame(height: 48)
+                    .background(accent.fill.opacity(offline ? 0.10 : 0.22), in: shape)
+            }
+            .buttonStyle(.plain)
+            .disabled(offline)
         } else {
             // Starting a download needs Loom to hand over a stream URL;
             // removing bytes that are already here does not.
@@ -384,10 +427,10 @@ struct ItemDetailView: View {
                 guard let client = appEnvironment.client else { return }
                 Task { await downloads.start(item: item, client: client) }
             } label: {
-                Image(systemName: "arrow.down")
+                Label("Download", systemImage: "arrow.down")
                     .font(.labelLarge)
                     .foregroundStyle(accent.fill.opacity(offline ? 0.4 : 1))
-                    .padding(.horizontal, 18)
+                    .padding(.horizontal, 16)
                     .frame(height: 48)
                     .background(accent.fill.opacity(offline ? 0.10 : 0.22), in: shape)
             }
@@ -401,10 +444,16 @@ struct ItemDetailView: View {
     private func downloadStatusLine(for item: Item) -> some View {
         // Never color alone: the accent is woven from the artwork, so shape
         // and words carry state; color is reserved for failure.
-        if downloads.entry(for: item.id) != nil {
-            statusLine(icon: "checkmark.circle", text: "Downloaded")
+        if let entry = downloads.entry(for: item.id) {
+            if !offline, downloadedMediaIsStale(storedMediaTag: entry.item.mediaTag, liveMediaTag: item.mediaTag) {
+                statusLine(icon: "arrow.triangle.2.circlepath", text: "New version available")
+            } else {
+                statusLine(icon: "checkmark.circle", text: "Downloaded")
+            }
         } else if let fraction = downloads.activeProgress[item.id] {
-            statusLine(icon: "arrow.down.circle", text: "Downloading · \(Int(fraction * 100))%")
+            statusLine(icon: "arrow.down.circle", text: fraction == 0 ? "Queued" : "Downloading · \(Int(fraction * 100))%")
+        } else if downloads.failedItems[item.id] != nil {
+            statusLine(icon: "exclamationmark.circle", text: "Download failed")
         }
     }
 
