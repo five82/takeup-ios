@@ -1,0 +1,112 @@
+import SwiftUI
+
+/// Search under ember house lights. tvOS draws its grid keyboard above the
+/// results; mixed-kind results read as rows — a small poster, the title, its
+/// context line, and a kind tag.
+struct TVSearchView: View {
+    @Environment(AppEnvironment.self) private var appEnvironment
+    @State private var query: String
+    @State private var results: [Item] = []
+    @State private var fuzzy = false
+    @State private var searched = false
+
+    /// A non-empty initial query makes this a pushed person search (from a
+    /// cast card) rather than the sidebar's blank search root.
+    init(initialQuery: String = "") {
+        _query = State(initialValue: initialQuery)
+    }
+
+    var body: some View {
+        ZStack {
+            HouseLights(thread: .ember)
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 12) {
+                    if fuzzy && !results.isEmpty {
+                        Text("Closest matches")
+                            .font(.labelLarge)
+                            .foregroundStyle(Color.muted)
+                            .padding(.top, 16)
+                    }
+                    ForEach(results) { item in
+                        NavigationLink(value: item) {
+                            resultRow(item)
+                        }
+                        .buttonStyle(TVRowButtonStyle())
+                    }
+                }
+                .padding(.horizontal, TVLayout.sideMargin)
+                .padding(.vertical, 30)
+                .frame(maxWidth: 1200, alignment: .leading)
+                .frame(maxWidth: .infinity)
+            }
+        }
+        .background(Color.stage)
+        .navigationDestination(for: Item.self) { item in
+            TVDetailView(itemId: item.id, fallbackTitle: item.title)
+        }
+        .searchable(text: $query, prompt: "Titles and people")
+        .overlay {
+            if searched && results.isEmpty && !query.isEmpty {
+                EmptyState(message: "Nothing in the library matches \"\(query)\".")
+            }
+        }
+        .task(id: query) {
+            // Small debounce so we don't hit the server on every keystroke.
+            try? await Task.sleep(for: .milliseconds(300))
+            await search()
+        }
+    }
+
+    private func resultRow(_ item: Item) -> some View {
+        HStack(spacing: 24) {
+            ZStack {
+                Color.surface1
+                if let url = appEnvironment.client?.imageURL(id: item.posterImageId, tag: item.posterImageTag, width: 240) {
+                    CachedImage(url: url, contentMode: .fill)
+                }
+            }
+            .frame(width: 80, height: 120)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(item.title)
+                    .font(.titleMedium)
+                    .foregroundStyle(Color.ink)
+                    .lineLimit(1)
+                if let context = contextLine(item) {
+                    Text(context)
+                        .font(.bodySmall)
+                        .foregroundStyle(Color.muted)
+                        .lineLimit(1)
+                }
+            }
+            Spacer(minLength: 12)
+            KindTag(kind: item.kind)
+        }
+    }
+
+    private func contextLine(_ item: Item) -> String? {
+        if item.kind == "episode" {
+            return [item.seriesTitle, episodeLabel(item)].compactMap { $0 }.joined(separator: " · ")
+        }
+        if let year = item.year, year > 0 { return String(year) }
+        return nil
+    }
+
+    private func search() async {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let client = appEnvironment.client, !trimmed.isEmpty else {
+            results = []
+            searched = false
+            return
+        }
+        do {
+            let response = try await client.search(query: trimmed)
+            results = response.items
+            fuzzy = response.fuzzy ?? false
+            searched = true
+        } catch {
+            // Leave the last results standing; the next keystroke retries.
+        }
+    }
+}

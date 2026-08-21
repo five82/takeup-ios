@@ -3,14 +3,20 @@ import Observation
 
 /// App-wide state: the configured Loom server and the API client built from it.
 /// Mirrors Takeup Android's ServerConfig-in-DataStore, using UserDefaults.
+///
+/// The iPad wires in NetworkPolicy (its offline/Tailscale brain); the TV app
+/// has no offline story — it lives on the Loom LAN — so its requests always go
+/// out and failures surface as plain errors.
 @Observable
 @MainActor
 final class AppEnvironment {
     private static let serverKey = "loom.server.url"
 
+#if os(iOS)
     /// Owned here so there is exactly one; TakeupApp injects it into the
     /// SwiftUI environment for screens to read.
     let network = NetworkPolicy()
+#endif
 
     var serverURLString: String {
         didSet {
@@ -26,8 +32,10 @@ final class AppEnvironment {
     }
 
     private func updateNetworkAddress() {
+#if os(iOS)
         network.serverURL = serverURL
         network.recheck()
+#endif
     }
 
     var serverURL: URL? {
@@ -46,6 +54,10 @@ final class AppEnvironment {
     }
 
     var client: LoomClient? {
+#if os(iOS)
         serverURL.map { LoomClient(baseURL: $0, blocked: network.blockedGate) }
+#else
+        serverURL.map { LoomClient(baseURL: $0) }
+#endif
     }
 }

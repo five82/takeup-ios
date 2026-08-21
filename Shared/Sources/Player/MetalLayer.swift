@@ -14,6 +14,11 @@ final class MetalLayer: CAMetalLayer {
         }
     }
 
+#if os(iOS)
+    // tvOS has no wantsExtendedDynamicRangeContent: the Apple TV negotiates
+    // HDR output at the system level (match content settings), so mpv's
+    // colorspace hint reaches the display without this layer property.
+    // HDR10 behavior there is verified on the physical box.
     override var wantsExtendedDynamicRangeContent: Bool {
         get { super.wantsExtendedDynamicRangeContent }
         set {
@@ -26,4 +31,5 @@ final class MetalLayer: CAMetalLayer {
             }
         }
     }
+#endif
 }

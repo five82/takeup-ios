@@ -1,5 +1,20 @@
 import SwiftUI
 
+// MARK: - Pointer hover
+
+extension View {
+    /// The iPad's pointer hover lift. On tvOS the focus engine supplies all
+    /// the motion, and `hoverEffect` does not exist there.
+    @ViewBuilder
+    func padHover() -> some View {
+#if os(iOS)
+        hoverEffect(.lift)
+#else
+        self
+#endif
+    }
+}
+
 // MARK: - Pane width
 
 // The measured width of the navigation pane, provided by the root shell.
@@ -206,7 +221,7 @@ struct RoundIconButton: View {
                 .background(Color.stage.opacity(0.55), in: Circle())
         }
         .buttonStyle(.plain)
-        .hoverEffect(.lift)
+        .padHover()
     }
 }
 
@@ -259,7 +274,7 @@ struct PillButton: View {
             .padding(.vertical, 11)
             .background(Color.ink.opacity(0.08), in: Capsule())
             .buttonStyle(.plain)
-            .hoverEffect(.lift)
+            .padHover()
     }
 }
 
@@ -325,7 +340,7 @@ struct OfflineBanner: View {
                 .padding(.vertical, 8)
                 .background(Color.ink.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
                 .buttonStyle(.plain)
-                .hoverEffect(.lift)
+                .padHover()
         }
         .frame(maxWidth: .infinity)
     }

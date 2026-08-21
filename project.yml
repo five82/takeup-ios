@@ -3,10 +3,13 @@ options:
   bundleIdPrefix: xyz.five82
   deploymentTarget:
     iOS: "26.0"
+    # The physical Apple TV runs the tvOS 27 beta (matching the simulator
+    # runtime), and the incoming AV1-capable model ships with 27 stable.
+    tvOS: "27.0"
   createIntermediateGroups: true
 
 # Vendored MPVKit: official 0.41.0 binaries except Libmpv, which is built
-# locally with a live-resize patch. See docs/mpv-live-resize.md.
+# locally with a live-resize patch (and tvOS slices). See docs/mpv-live-resize.md.
 packages:
   MPVKit:
     path: Vendor/MPVKit
@@ -24,6 +27,14 @@ schemes:
       config: Debug
       targets:
         - TakeupTests
+  TakeupTV:
+    build:
+      targets:
+        TakeupTV: all
+    run:
+      config: Debug
+      # Same MoltenVK HDR passthrough issue as the iPad scheme.
+      metalAPIValidation: false
 
 targets:
   Takeup:
@@ -31,6 +42,7 @@ targets:
     platform: iOS
     sources:
       - Takeup
+      - Shared
     dependencies:
       - package: MPVKit
         product: MPVKit
@@ -60,6 +72,46 @@ targets:
         NSAppTransportSecurity:
           # Loom is trusted-LAN cleartext HTTP; the same address is reached through the
           # Tailscale tunnel, which ATS's local-networking carve-out does not cover.
+          NSAllowsArbitraryLoads: true
+          NSAllowsLocalNetworking: true
+        NSLocalNetworkUsageDescription: Takeup connects to your Loom media server on the local network.
+        NSBonjourServices:
+          - _loom._tcp
+        UIAppFonts:
+          - Lato-Medium.ttf
+          - Lato-MediumItalic.ttf
+          - Lato-Bold.ttf
+          - Lato-BoldItalic.ttf
+  TakeupTV:
+    type: application
+    platform: tvOS
+    sources:
+      - TakeupTV
+      - Shared
+      # The subtitle voice's Lato faces, shared with the iPad target.
+      - path: Takeup/Resources/Fonts
+        buildPhase: resources
+    dependencies:
+      - package: MPVKit
+        product: MPVKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: xyz.five82.takeup.tv
+        DEVELOPMENT_TEAM: G539654RSK
+        CODE_SIGN_STYLE: Automatic
+        TARGETED_DEVICE_FAMILY: "3"
+        SWIFT_VERSION: "5.0"
+        CURRENT_PROJECT_VERSION: 1
+        MARKETING_VERSION: 0.1.0
+        ENABLE_USER_SCRIPT_SANDBOXING: true
+    info:
+      path: TakeupTV/Info.plist
+      properties:
+        LSApplicationCategoryType: public.app-category.entertainment
+        UILaunchScreen: {}
+        NSAppTransportSecurity:
+          # The Apple TV only ever talks to Loom over trusted-LAN cleartext
+          # HTTP; there is no tunnel path here, but ATS still needs the carve-out.
           NSAllowsArbitraryLoads: true
           NSAllowsLocalNetworking: true
         NSLocalNetworkUsageDescription: Takeup connects to your Loom media server on the local network.

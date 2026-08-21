@@ -7,12 +7,15 @@ This file provides guidance when working with code in this repository.
 - Do not create git branches unless explicitly instructed.
 - The `.xcodeproj` is generated and gitignored. Run `xcodegen generate` after adding, removing, or renaming files, or after editing `project.yml`.
 - Build and test on the iOS simulator by default. Use the Xcode beta toolchain (`DEVELOPER_DIR=/Applications/Xcode-beta.app`) so the simulator matches the physical iPad's OS.
+- The repo builds two apps: `Takeup` (iPad) and `TakeupTV` (Apple TV), sharing `Shared/`. Changes to `Shared/` must keep both targets building; the tvOS section below covers the TV workflow and its simulator quirks.
 - Unlike the Android emulator, video playback (including MKV via MPVKit) works in the simulator — but only for files the simulator can hardware-decode (H.264/HEVC). AV1 files fall back to software decode and crash the app during frame upload (MoltenVK hits an `xpc_shmem_create` abort in the simulator Metal driver, observed 2026-08 with both 4K and 1080p AV1). Use an H.264/HEVC title for simulator playback checks; AV1 plays fine on the physical iPad (M4 hardware decode). HDR/EDR output, hardware decode, and playback smoothness must be verified on the physical iPad.
 - The app has debug launch arguments for CLI-driven checks: `-autoplay <itemId>` jumps straight into playback, `-tab <home|movies|shorts|tv|collections|genres|search|downloads|settings>` selects a sidebar section, `-detail <itemId>` pushes an item's detail screen (add `-person <name>` to also push the cast-card person search), `-artwork <itemId>` pushes an item's detail and then its artwork picker (add `-artworkKind <poster|backdrop|logo|thumb>` to open on that kind), `-server <address>` sets the Loom address (an unroutable address simulates offline), `-download <itemId>` starts a download, `-popover <chapters|audio|cc>` opens a player console popover shortly after playback starts (pair with `-autoplay`), `-autochain` plays the next episode automatically when the end-of-playback overlay would offer it, and `-landscape` narrows supported orientations to landscape. In practice `-landscape` has not reliably rotated the headless simulator; rotate via Simulator.app instead (see the Simulator section).
 
 ## Project
 
 Takeup iOS is a native iPad client for Loom, written in Swift/SwiftUI with MPVKit (libmpv) for playback. It is a sibling of the Android Takeup app (`~/projects/takeup`); when in doubt about feature semantics (progress protocol, home rows, artwork buckets), mirror the Android app's behavior.
+
+The repo also builds **TakeupTV**, the Apple TV sibling. Three source roots feed two app targets: `Takeup/` (iPad screens, downloads/offline/Tailscale logic), `TakeupTV/` (TV screens, focus-driven), and `Shared/` (compiled into both: the Loom client and models, discovery shelves, the mpv player core and subtitle pipeline, formatters, and the whole design-system token layer). The TV app deliberately has **no downloads, no offline mode, no Tailscale logic, and no artwork picker** — the Apple TV always lives on the Loom LAN, so its failure model is one error state with a retry. `Typography.swift` carries both type scales behind `#if os(tvOS)`; everything else in `Shared/` compiles identically for both platforms. See the tvOS section below for build/run specifics.
 
 Single-developer hobby project - prefer simple, maintainable solutions over clever abstractions.
 
@@ -123,6 +126,37 @@ osascript -e 'tell application "Simulator" to activate' -e 'delay 1' \
   -e 'tell application "System Events" to tell process "Simulator" to click menu item "Rotate Right" of menu "Device" of menu bar 1'
 # Rotate Left to return to portrait; screenshot dimensions confirm the orientation took.
 ```
+
+## tvOS (Apple TV)
+
+The `TakeupTV` scheme builds the Apple TV app from `TakeupTV/` + `Shared/`. The vendored `Libmpv.xcframework` carries tvOS slices — `scripts/build-libmpv.sh` builds `ios,isimulator,tvos,tvsimulator` into the one framework (the live-resize patch compiles into the tvOS slices but is inert on a fixed-size screen).
+
+```bash
+export DEVELOPER_DIR=/Applications/Xcode-beta.app
+xcodebuild -project Takeup.xcodeproj -scheme TakeupTV \
+  -destination 'platform=tvOS Simulator,name=Apple TV 4K (3rd generation)' \
+  -derivedDataPath DerivedDataTV build
+xcrun simctl install <udid> DerivedDataTV/Build/Products/Debug-appletvsimulator/TakeupTV.app
+xcrun simctl launch <udid> xyz.five82.takeup.tv -server <address> -tab home
+```
+
+Launch arguments carried over from the iPad app: `-server`, `-tab <home|movies|tv|shorts|collections|genres|search|settings>`, `-detail <itemId>`, `-autoplay <itemId>`, `-popover <chapters|audio|cc>` (opens the console panel), and `-autochain`. There is no `-download`, `-artwork`, `-person`, or `-landscape`.
+
+Driving the headless tvOS simulator: `simctl` has no remote input, but idb's HID key events reach it (run idb with the stable Xcode, same as iPad taps; it prints a "Keyboard HID is suppressed" warning and exits nonzero, yet the event is delivered — don't chain it with `&&`). HID usage codes: 79/80/81/82 = right/left/down/up, 40 = select, 41 = menu.
+
+```bash
+DEVELOPER_DIR=/Applications/Xcode.app ~/.venvs/idb/bin/idb ui key --udid <udid> 79
+```
+
+Known tvOS-simulator quirks (2026-08, tvOS 27.0 runtime):
+
+- **Video washes out to near-white a few seconds into playback.** The decode/playback pipeline is fine — early frames render correctly, and the identical `Shared/` player code shows the same file with perfect contrast on the iOS simulator at the same timestamp. It is a tvOS-simulator Metal-driver artifact (same family as the iOS simulator's AV1 crash); `framebufferOnly` and `target-colorspace-hint` experiments changed nothing. Use the simulator to verify player *chrome* and behavior; judge the picture on the physical Apple TV.
+- `CAMetalLayer.wantsExtendedDynamicRangeContent` does not exist on tvOS (the override in `MetalLayer.swift` is `#if os(iOS)`); the Apple TV negotiates HDR at the system level. HDR10 output (HEVC now, AV1 once the AV1-capable Apple TV arrives) must be verified on the box.
+- The sidebar (`.sidebarAdaptable` TabView) starts expanded with focus in it; send a right-arrow key before screenshots that need the content unobscured.
+
+**4K AV1 is gated, not hidden.** The A15 Apple TV has no AV1 hardware decoder and dav1d software decode cannot sustain 4K, so `PlaybackGate` (in `Shared/`, unit-tested) refuses playback of AV1 above 1080p when `VTIsHardwareDecodeSupported(AV1)` is false: the detail screen disables Play with the reason, and the player surfaces the same reason for direct entries. 1080p AV1 plays (software decode holds up on the A15). The check is a live capability query, so the gate lifts itself on the next-generation Apple TV with no code change. Titles stay visible in the library either way.
+
+The physical Apple TV must be paired once before `devicectl` can install to it (Xcode ▸ Devices, or Settings ▸ Remotes and Devices ▸ Remote App and Devices on the box); the free-account 7-day install expiry applies to it like the iPad.
 
 ## Physical iPad
 

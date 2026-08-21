@@ -27,10 +27,13 @@ fi
 echo "==> Applying local patches"
 cp "$REPO_ROOT"/patches/mpvkit/*.patch "$WORK_DIR/Sources/BuildScripts/patch/libmpv/"
 
-echo "==> Building (ios + simulator)"
+# tvOS slices serve the TakeupTV target. The live-resize patch compiles into
+# them but is inert on a fixed-size screen (it only polls drawableSize for
+# changes); one xcframework keeps both apps on the same mpv/ffmpeg build.
+echo "==> Building (ios + tvos + simulators)"
 cd "$WORK_DIR"
 export PATH="/opt/homebrew/bin:$PATH"
-make build platform=ios,isimulator
+make build platform=ios,isimulator,tvos,tvsimulator
 
 echo "==> Installing Libmpv.xcframework into $DEST"
 XCFRAMEWORK=$(find "$WORK_DIR/dist" -name "Libmpv.xcframework" -type d | head -1)

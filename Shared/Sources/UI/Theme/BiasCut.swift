@@ -37,8 +37,10 @@ func logoLaneHeight(aspect: Double?) -> CGFloat {
 
 /// The art crop for a bias-cut head: the phone's full-width 4:3 in compact
 /// panes, widening as the canvas does — the cut's angle never changes, only
-/// the crop.
+/// the crop. The widest step is the TV's 1920pt canvas, where 2.6 would still
+/// swallow most of the screen.
 func biasCutArtAspect(width: CGFloat) -> CGFloat {
+    if width >= 1600 { return 2.9 }
     if width >= 1000 { return 2.6 }
     if width >= 700 { return 2.1 }
     return 4.0 / 3.0
