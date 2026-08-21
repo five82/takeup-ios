@@ -205,7 +205,8 @@ struct HomeView: View {
                 items: continueWatching,
                 width: width,
                 heading: { $0.seriesTitle },
-                caption: { continueLine($0) }
+                caption: { continueLine($0) },
+                removable: true
             )
         }
         if !nextUp.isEmpty {
@@ -279,7 +280,10 @@ struct HomeView: View {
         items: [Item],
         width: CGFloat,
         heading: @escaping (Item) -> String?,
-        caption: @escaping (Item) -> String
+        caption: @escaping (Item) -> String,
+        // Only Continue Watching can be cleared: Next Up is drawn from episodes
+        // that were never started, so there is no progress to drop.
+        removable: Bool = false
     ) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HomeRowLabel(text: title)
@@ -298,12 +302,20 @@ struct HomeView: View {
                             NavigationLink(value: item) {
                                 Label("Go to Details", systemImage: "info.circle")
                             }
-                            // A write to Loom, which offline would only fail.
+                            // Writes to Loom, which offline would only fail.
                             if !offline {
                                 Button("Mark Watched", systemImage: "checkmark.circle") {
                                     Task {
                                         try? await appEnvironment.client?.setPlayed(id: item.id, true)
                                         await load()
+                                    }
+                                }
+                                if removable {
+                                    Button("Remove from Continue Watching", systemImage: "minus.circle") {
+                                        Task {
+                                            try? await appEnvironment.client?.setPlayed(id: item.id, false)
+                                            await load()
+                                        }
                                     }
                                 }
                             }
