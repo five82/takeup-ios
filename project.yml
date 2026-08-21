@@ -100,6 +100,8 @@ targets:
         DEVELOPMENT_TEAM: G539654RSK
         CODE_SIGN_STYLE: Automatic
         TARGETED_DEVICE_FAMILY: "3"
+        # tvOS icons are layered brand assets, not a plain appiconset.
+        ASSETCATALOG_COMPILER_APPICON_NAME: App Icon & Top Shelf Image
         SWIFT_VERSION: "5.0"
         CURRENT_PROJECT_VERSION: 1
         MARKETING_VERSION: 0.1.0
