@@ -169,7 +169,10 @@ private struct TVPlayerSessionView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        // Not .plain: the system styles paint their white focus/press
+        // highlight over the label, and this label is the whole screen — the
+        // video visibly washes out under it. A custom style draws nothing.
+        .buttonStyle(TVInvisibleButtonStyle())
         .onMoveCommand { direction in
             switch direction {
             case .left:
@@ -513,6 +516,14 @@ private struct TVPlayerSessionView: View {
 }
 
 // MARK: - Console pieces
+
+/// A button that stays focusable but draws no focus or press treatment at
+/// all — the remote catcher must never be seen.
+private struct TVInvisibleButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+    }
+}
 
 /// Focus-aware circle for the transport: the play button and the ±10 chips.
 struct TVCircleButtonStyle: ButtonStyle {
