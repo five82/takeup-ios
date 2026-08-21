@@ -66,6 +66,24 @@ struct LoomDecodingTests {
         #expect(stream.resolution == "4k")
     }
 
+    @Test func scanStatusDecodesSnakeCaseFields() throws {
+        let json = Data("""
+        {
+            "running": true,
+            "library": "movies",
+            "started_at": "2026-08-20T17:04:05.123456789Z",
+            "last_ended_at": "2026-08-19T16:02:00Z",
+            "last_error": ""
+        }
+        """.utf8)
+        let status = try loomDecoder().decode(ScanStatus.self, from: json)
+        #expect(status.running == true)
+        #expect(status.library == "movies")
+        #expect(status.startedAt == "2026-08-20T17:04:05.123456789Z")
+        #expect(status.lastEndedAt == "2026-08-19T16:02:00Z")
+        #expect(status.lastError == "")
+    }
+
     @Test func imageOptionDecodesSnakeCaseFields() throws {
         let json = Data("""
         {

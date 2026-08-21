@@ -174,6 +174,14 @@ struct LoomClient {
         let _: EmptyResponse = try await request("items/\(id)/images/\(kind)/reset", method: "POST")
     }
 
+    func triggerScan() async throws {
+        let _: EmptyResponse = try await request("scan", method: "POST")
+    }
+
+    func scanStatus() async throws -> ScanStatus {
+        try await request("scan")
+    }
+
     // MARK: - URLs
 
     func streamURL(for playback: PlaybackInfo) -> URL? {

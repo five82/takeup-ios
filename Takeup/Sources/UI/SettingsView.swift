@@ -6,6 +6,8 @@ struct SettingsView: View {
     @Environment(AppEnvironment.self) private var appEnvironment
     @Environment(NetworkPolicy.self) private var network
     @State private var discovery = LoomDiscovery()
+    @State private var scanStatus: ScanStatus?
+    @State private var scanError: String?
 
     var body: some View {
         @Bindable var appEnvironment = appEnvironment
@@ -31,7 +33,7 @@ struct SettingsView: View {
                         .background(Color.surface1.opacity(0.6), in: RoundedRectangle(cornerRadius: 10))
                         .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.line, lineWidth: 1))
                         .padding(.top, 12)
-                    RowLabel(text: "Network", color: .amber)
+                    RowLabel(text: "Network", color: .ember)
                         .padding(.top, 28)
                     HStack(spacing: 12) {
                         Circle()
@@ -52,6 +54,28 @@ struct SettingsView: View {
                         .buttonStyle(.plain)
                         .hoverEffect(.lift)
                     }
+                    .padding(.top, 12)
+
+                    RowLabel(text: "Library", color: .amber)
+                        .padding(.top, 28)
+                    Text(scanStatusLine)
+                        .font(.bodyMedium)
+                        .foregroundStyle(Color.muted)
+                        .padding(.top, 10)
+                    Button {
+                        Task { await triggerScan() }
+                    } label: {
+                        Text("Scan libraries now")
+                            .font(.labelLarge)
+                            .foregroundStyle(Color.ink)
+                            .padding(.horizontal, 18)
+                            .padding(.vertical, 10)
+                            .overlay(Capsule().stroke(Color.ink.opacity(0.24), lineWidth: 1))
+                    }
+                    .buttonStyle(.plain)
+                    .hoverEffect(.lift)
+                    .disabled(scanStatus?.running == true || network.reach == .offline || appEnvironment.client == nil)
+                    .opacity(scanStatus?.running == true || network.reach == .offline || appEnvironment.client == nil ? 0.5 : 1)
                     .padding(.top, 12)
 
                     RowLabel(text: "Discovered on network", color: .ember)
@@ -89,6 +113,59 @@ struct SettingsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { discovery.start() }
         .onDisappear { discovery.stop() }
+        .task(id: network.reach == .offline) { await pollScanStatus() }
+    }
+
+    private var scanStatusLine: String {
+        if network.reach == .offline { return "Scanning needs Loom." }
+        if let scanError { return "Scan status unavailable: \(scanError)" }
+        guard let scanStatus else { return "Checking scan status..." }
+        if scanStatus.running == true {
+            let library = scanStatus.library.flatMap { $0.isEmpty ? nil : $0 } ?? "all libraries"
+            return "Scanning \(library)..."
+        }
+        if let error = scanStatus.lastError, !error.isEmpty { return "Last scan failed: \(error)" }
+        if let ended = scanStatus.lastEndedAt, !ended.isEmpty {
+            return "Last scan finished \(formatTimestamp(ended))"
+        }
+        return "No scan has run yet"
+    }
+
+    private func pollScanStatus() async {
+        while !Task.isCancelled, network.reach != .offline {
+            await refreshScanStatus()
+            do {
+                try await Task.sleep(for: .seconds(3))
+            } catch {
+                return
+            }
+        }
+    }
+
+    private func triggerScan() async {
+        guard let client = appEnvironment.client else { return }
+        do {
+            try await client.triggerScan()
+            scanError = nil
+            await refreshScanStatus()
+        } catch {
+            guard !Task.isCancelled, (error as? URLError)?.code != .cancelled else { return }
+            if isOfflineError(error) { network.markUnreachable() }
+            scanError = error.localizedDescription
+        }
+    }
+
+    private func refreshScanStatus() async {
+        guard network.reach != .offline, let client = appEnvironment.client else { return }
+        do {
+            scanStatus = try await client.scanStatus()
+            scanError = nil
+            network.markReachable()
+        } catch {
+            guard !Task.isCancelled, (error as? URLError)?.code != .cancelled else { return }
+            if isOfflineError(error) { network.markUnreachable() }
+            scanError = error.localizedDescription
+        }
     }
 
     /// What the app currently knows about the route to Loom, in its own words

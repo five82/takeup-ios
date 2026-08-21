@@ -62,3 +62,48 @@ func resolutionBadge(_ resolution: String?) -> String? {
     default: nil
     }
 }
+
+/// "Today at 1:04 PM", "Yesterday at 11:32 PM", "Aug 18 at 9:05 AM", or
+/// "Dec 30, 2025 at 9:05 AM" for a Loom RFC 3339 timestamp in local time.
+func formatTimestamp(
+    _ iso: String,
+    timeZone: TimeZone = .current,
+    locale: Locale = .current,
+    now: Date = .now
+) -> String {
+    let fractional = ISO8601DateFormatter()
+    fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    let plain = ISO8601DateFormatter()
+    plain.formatOptions = [.withInternetDateTime]
+    guard let moment = fractional.date(from: iso) ?? plain.date(from: iso) else { return iso }
+
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = timeZone
+    let days = calendar.dateComponents(
+        [.day],
+        from: calendar.startOfDay(for: moment),
+        to: calendar.startOfDay(for: now)
+    ).day ?? 0
+
+    let time = DateFormatter()
+    time.locale = locale
+    time.timeZone = timeZone
+    time.dateFormat = "h:mm a"
+
+    let day: String
+    switch days {
+    case 0:
+        day = "Today"
+    case 1:
+        day = "Yesterday"
+    default:
+        let date = DateFormatter()
+        date.locale = locale
+        date.timeZone = timeZone
+        date.dateFormat = calendar.component(.year, from: moment) == calendar.component(.year, from: now)
+            ? "MMM d"
+            : "MMM d, yyyy"
+        day = date.string(from: moment)
+    }
+    return "\(day) at \(time.string(from: moment))"
+}

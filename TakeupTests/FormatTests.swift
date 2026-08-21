@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import Takeup
 
@@ -82,5 +83,17 @@ struct FormatTests {
         #expect(resolutionBadge("sd") == "SD")
         #expect(resolutionBadge(nil) == nil)
         #expect(resolutionBadge("unknown") == nil)
+    }
+
+    @Test func timestampsReadLikeTheAndroidApp() throws {
+        let zone = try #require(TimeZone(identifier: "America/New_York"))
+        let now = try #require(ISO8601DateFormatter().date(from: "2026-08-20T22:00:00Z"))
+        let locale = Locale(identifier: "en_US_POSIX")
+
+        #expect(formatTimestamp("2026-08-20T17:04:05.123456789Z", timeZone: zone, locale: locale, now: now) == "Today at 1:04 PM")
+        #expect(formatTimestamp("2026-08-20T03:32:00Z", timeZone: zone, locale: locale, now: now) == "Yesterday at 11:32 PM")
+        #expect(formatTimestamp("2026-08-18T13:05:00Z", timeZone: zone, locale: locale, now: now) == "Aug 18 at 9:05 AM")
+        #expect(formatTimestamp("2025-12-30T14:05:00Z", timeZone: zone, locale: locale, now: now) == "Dec 30, 2025 at 9:05 AM")
+        #expect(formatTimestamp("soon", timeZone: zone, locale: locale, now: now) == "soon")
     }
 }
