@@ -107,6 +107,9 @@ targets:
     info:
       path: TakeupTV/Info.plist
       properties:
+        # The target is TakeupTV to live beside the iPad target; the app
+        # itself is just Takeup, same as on the iPad and Android.
+        CFBundleDisplayName: Takeup
         LSApplicationCategoryType: public.app-category.entertainment
         UILaunchScreen: {}
         NSAppTransportSecurity:
