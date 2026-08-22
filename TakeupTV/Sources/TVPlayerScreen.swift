@@ -55,6 +55,10 @@ private struct TVPlayerSessionView: View {
     @State private var threads: [RGB] = []
     /// Any interaction bumps this; the auto-hide countdown restarts.
     @State private var interactionTick = 0
+    /// Bumped by hidden-chrome skips; drives the transient seek indicator.
+    @State private var seekFlashTick = 0
+    @State private var seekFlashForward = true
+    @State private var seekFlashVisible = false
     @FocusState private var playPauseFocused: Bool
 
     var body: some View {
@@ -87,6 +91,11 @@ private struct TVPlayerSessionView: View {
                 remoteCatcher
             }
 
+            if seekFlashVisible, !controlsVisible, !model.ended {
+                seekFlash
+                    .transition(.opacity)
+            }
+
             if controlsVisible && !model.ended {
                 chrome
                     .transition(.opacity)
@@ -110,12 +119,29 @@ private struct TVPlayerSessionView: View {
                 dismiss()
             }
         }
-        // Pausing surfaces the chrome so the paused frame is never ambiguous.
+        // Pausing surfaces the chrome so the paused frame is never ambiguous;
+        // resuming slips it away much faster than the idle timeout, the way
+        // the system player behaves.
         .onChange(of: model.paused) { _, paused in
             if paused {
                 withAnimation(.easeInOut(duration: 0.2)) { controlsVisible = true }
+                playPauseFocused = true
             }
             interactionTick += 1
+        }
+        .task(id: model.paused) {
+            guard !model.paused, controlsVisible else { return }
+            try? await Task.sleep(for: .milliseconds(1200))
+            guard !Task.isCancelled, !model.paused, !model.ended, panel == nil else { return }
+            withAnimation(.easeInOut(duration: 0.2)) { controlsVisible = false }
+        }
+        // The transient skip indicator lingers a beat past the last press.
+        .task(id: seekFlashTick) {
+            guard seekFlashTick > 0 else { return }
+            withAnimation(.easeInOut(duration: 0.15)) { seekFlashVisible = true }
+            try? await Task.sleep(for: .milliseconds(1100))
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeInOut(duration: 0.3)) { seekFlashVisible = false }
         }
         // Chrome auto-hides while playing; every interaction restarts the
         // countdown.
@@ -157,12 +183,16 @@ private struct TVPlayerSessionView: View {
     // MARK: - Remote catcher
 
     /// With the chrome hidden this invisible button is the only focusable
-    /// thing on screen: click reveals the console, left/right seek, up/down
-    /// also reveal. It exists because the mpv view is not focusable and the
-    /// focus engine needs somewhere to stand.
+    /// thing on screen: click pauses and reveals the console with Play
+    /// focused (the platform convention), left/right seek with a transient
+    /// indicator, up/down reveal the console without pausing. It exists
+    /// because the mpv view is not focusable and the focus engine needs
+    /// somewhere to stand.
     private var remoteCatcher: some View {
         Button {
+            model.controller?.setPaused(true)
             withAnimation(.easeInOut(duration: 0.2)) { controlsVisible = true }
+            playPauseFocused = true
             interactionTick += 1
         } label: {
             Color.clear
@@ -177,14 +207,39 @@ private struct TVPlayerSessionView: View {
             switch direction {
             case .left:
                 model.controller?.seek(by: -10)
+                seekFlashForward = false
+                seekFlashTick += 1
             case .right:
                 model.controller?.seek(by: 10)
+                seekFlashForward = true
+                seekFlashTick += 1
             default:
                 withAnimation(.easeInOut(duration: 0.2)) { controlsVisible = true }
+                playPauseFocused = true
                 interactionTick += 1
             }
         }
         .ignoresSafeArea()
+    }
+
+    /// The skip readout for hidden-chrome seeks: direction glyph and the
+    /// landing position, no focus involved.
+    private var seekFlash: some View {
+        VStack {
+            Spacer()
+            HStack(spacing: 14) {
+                Image(systemName: seekFlashForward ? "goforward.10" : "gobackward.10")
+                    .font(.system(size: 30, weight: .medium))
+                Text("\(formatClock(model.timeSeconds)) / \(formatClock(model.durationSeconds))")
+                    .font(.labelLarge.monospacedDigit())
+            }
+            .foregroundStyle(Color.ink)
+            .padding(.horizontal, 34)
+            .padding(.vertical, 20)
+            .background(chipFill, in: Capsule())
+            .overlay(Capsule().stroke(chipStroke, lineWidth: 1))
+            .padding(.bottom, TVLayout.verticalMargin)
+        }
     }
 
     // MARK: - Chrome
