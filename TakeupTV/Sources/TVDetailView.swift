@@ -166,17 +166,9 @@ struct TVDetailView: View {
                 showControls(for: item)
                     .padding(.top, 24)
             }
-            // Shows keep a short overview beside the art — their screen
-            // belongs to the episodes; movies and episodes tell the story
-            // below the band, at full reading size.
-            if item.kind == "show", let overview = item.overview, !overview.isEmpty {
-                Text(overview)
-                    .font(.bodyMedium)
-                    .foregroundStyle(Color.ink.opacity(0.85))
-                    .lineSpacing(4)
-                    .lineLimit(3)
-                    .padding(.top, 22)
-            }
+            // Shows carry no overview — the column beside the art is too
+            // tight for prose, and the screen belongs to the episodes.
+            // Movies and episodes tell the story below the band instead.
         }
         .frame(width: columnWidth, alignment: .leading)
     }
