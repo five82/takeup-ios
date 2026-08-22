@@ -3,9 +3,17 @@ import UIKit
 
 // Sizing follows the displayed picture rather than the type scale or the whole
 // surface, so cues keep their proportions on any screen and in any orientation.
-// The fractions are Media3 SubtitleView's defaults (5.33% of the picture),
-// pulled in slightly for a handheld tablet.
+// The fractions are Media3 SubtitleView's defaults (5.33% of the picture).
+#if os(tvOS)
+// The 10-foot screen keeps Media3's full size; anchored cues must clear the
+// tvOS side safe zone (80pt), beyond which overscan can crop.
+private let textSizeFraction: CGFloat = 0.0533
+private let horizontalEdgePadding: CGFloat = 80
+#else
+// Pulled in slightly for a handheld tablet viewed at arm's length.
 private let textSizeFraction: CGFloat = 0.05
+private let horizontalEdgePadding: CGFloat = 24
+#endif
 private let edgeFraction: CGFloat = 0.08
 
 /// The rectangle mpv paints the picture into: scaled to fit the surface and
@@ -88,7 +96,7 @@ struct SubtitleOverlay: View {
                         // Keeping the padding relative to the picture holds
                         // cues (and left/right anchors) with it instead of
                         // letting them drift onto the pillarbox.
-                        .padding(.horizontal, video.minX + 24)
+                        .padding(.horizontal, video.minX + horizontalEdgePadding)
                         .padding(.top, topInset(cue, above: above, edge: edge))
                         .padding(.bottom, bottomInset(cue, below: below, edge: edge))
                         .frame(
