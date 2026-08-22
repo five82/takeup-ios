@@ -88,7 +88,8 @@ struct TVRowButtonStyle: ButtonStyle {
 
 /// The hero is one big click target, like the Android app; under focus it
 /// breathes rather than lifts — a bias-cut backdrop on a card platter would
-/// break the seamless ground the cut depends on.
+/// break the seamless ground the cut depends on. The ember glow bleeds out
+/// along the bias-cut edge, so a still frame shows the hero holds focus.
 struct TVHeroButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         HeroLabel(configuration: configuration)
@@ -100,10 +101,36 @@ struct TVHeroButtonStyle: ButtonStyle {
 
         var body: some View {
             configuration.label
-                .scaleEffect(focused ? 1.012 : 1, anchor: .bottom)
-                .brightness(focused ? 0.05 : 0)
+                .scaleEffect(focused ? 1.02 : 1, anchor: .bottom)
+                .brightness(focused ? 0.06 : 0)
+                .shadow(color: Color.ember.opacity(focused ? 0.45 : 0), radius: 30, y: 12)
                 .animation(.easeOut(duration: 0.2), value: focused)
         }
+    }
+}
+
+// MARK: - Focus halo
+
+/// Thread-colored glow behind the focused card. The system card style's lift
+/// and sheen read well mid-navigation but are easy to lose in a still frame;
+/// the halo marks the focused card from across the room. Apply it to the
+/// focusable control itself, outside `.buttonStyle(.card)`, so the glow hugs
+/// the lifted platter.
+private struct TVFocusHalo: ViewModifier {
+    var thread: Color
+    @FocusState private var focused: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .focused($focused)
+            .shadow(color: thread.opacity(focused ? 0.55 : 0), radius: 28, y: 10)
+            .animation(.easeOut(duration: 0.18), value: focused)
+    }
+}
+
+extension View {
+    func tvFocusHalo(_ thread: Color) -> some View {
+        modifier(TVFocusHalo(thread: thread))
     }
 }
 
@@ -141,8 +168,49 @@ struct TVPosterCard: View {
     }
 }
 
+/// Poster shelf/grid cell: the card button plus a title that appears only
+/// under the focused poster, the way the system shelves caption focus. The
+/// label slot is always reserved so rows never reflow, and the title dips
+/// with the lift so the platter does not cover it.
+struct TVPosterCell: View {
+    let item: Item
+    var thread: Color = .ember
+    var width: CGFloat?
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        VStack(spacing: 12) {
+            NavigationLink(value: item) {
+                TVPosterCard(item: item, thread: thread)
+            }
+            .buttonStyle(.card)
+            .focused($focused)
+            .shadow(color: thread.opacity(focused ? 0.55 : 0), radius: 28, y: 10)
+
+            // The title slot stays one line tall, but the revealed title may
+            // run wider than the poster: neighbors' slots are empty whenever
+            // this cell is focused, so a long title borrows their space
+            // instead of costing every row a second line.
+            Text(verbatim: " ")
+                .font(.titleSmall)
+                .overlay {
+                    Text(item.title)
+                        .font(.titleSmall)
+                        .foregroundStyle(Color.ink)
+                        .lineLimit(1)
+                        .frame(width: TVLayout.posterWidth * 1.5)
+                }
+                .opacity(focused ? 1 : 0)
+                .offset(y: focused ? 14 : 0)
+        }
+        .frame(width: width)
+        .animation(.easeOut(duration: 0.18), value: focused)
+    }
+}
+
 /// 16:9 thumb face plus its static labels. The card lifts under focus; the
-/// text stays put beneath it, the way the system's own shelves behave.
+/// text stays put beneath it, the way the system's own shelves behave, but
+/// the caption inks up so the focused cell reads without motion.
 struct TVThumbCell: View {
     let item: Item
     var heading: String?
@@ -152,6 +220,7 @@ struct TVThumbCell: View {
     var action: () -> Void
 
     @Environment(AppEnvironment.self) private var appEnvironment
+    @FocusState private var focused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -174,6 +243,8 @@ struct TVThumbCell: View {
                 }
             }
             .buttonStyle(.card)
+            .focused($focused)
+            .shadow(color: thread.opacity(focused ? 0.55 : 0), radius: 28, y: 10)
 
             VStack(alignment: .leading, spacing: 2) {
                 if let heading {
@@ -185,13 +256,14 @@ struct TVThumbCell: View {
                 if let caption {
                     Text(caption)
                         .font(.bodyMedium)
-                        .foregroundStyle(Color.muted)
+                        .foregroundStyle(focused ? Color.ink : Color.muted)
                         .lineLimit(1)
                 }
             }
             .padding(.leading, 4)
         }
         .frame(width: width, alignment: .leading)
+        .animation(.easeOut(duration: 0.18), value: focused)
     }
 }
 

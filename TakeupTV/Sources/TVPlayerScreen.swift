@@ -476,6 +476,7 @@ private struct TVPlayerSessionView: View {
                         .frame(width: 480, height: 270)
                     }
                     .buttonStyle(.card)
+                    .tvFocusHalo(threads.first?.color ?? .ember)
                     Text([episodeLabel(next), next.title].compactMap { $0 }.joined(separator: " · "))
                         .font(.titleMedium)
                         .foregroundStyle(Color.ink)

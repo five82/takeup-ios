@@ -54,6 +54,7 @@ struct TVCollectionsView: View {
                         card(collection)
                     }
                     .buttonStyle(.card)
+                    .tvFocusHalo(.violet)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(collection.title)
                             .font(.titleSmall)

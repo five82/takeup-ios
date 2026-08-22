@@ -194,6 +194,10 @@ struct TVHomeView: View {
                 .padding(.vertical, 30)
             }
             .scrollClipDisabled()
+            // Each shelf is one focus section, so a vertical swipe lands in
+            // the neighboring row even when it is scrolled past the column
+            // the swipe started from.
+            .focusSection()
         }
         .padding(.top, TVLayout.rowSpacing - 30)
     }
@@ -205,17 +209,14 @@ struct TVHomeView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(alignment: .top, spacing: TVLayout.cardSpacing) {
                     ForEach(items) { item in
-                        NavigationLink(value: item) {
-                            TVPosterCard(item: item)
-                        }
-                        .buttonStyle(.card)
-                        .frame(width: TVLayout.posterWidth)
+                        TVPosterCell(item: item, width: TVLayout.posterWidth)
                     }
                 }
                 .padding(.horizontal, TVLayout.sideMargin)
                 .padding(.vertical, 30)
             }
             .scrollClipDisabled()
+            .focusSection()
         }
         .padding(.top, TVLayout.rowSpacing - 30)
     }

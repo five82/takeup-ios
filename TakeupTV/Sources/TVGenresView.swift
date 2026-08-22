@@ -56,6 +56,7 @@ struct TVGenresView: View {
                     tile(genre)
                 }
                 .buttonStyle(.card)
+                .tvFocusHalo(genreField(genre.id).color)
             }
         }
         .padding(.horizontal, TVLayout.sideMargin)

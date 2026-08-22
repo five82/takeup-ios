@@ -397,6 +397,7 @@ struct TVDetailView: View {
                 }
             }
             .buttonStyle(.card)
+            .tvFocusHalo(accent.tint)
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 10) {

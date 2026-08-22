@@ -63,15 +63,12 @@ struct TVGridView: View {
             spacing: 48
         ) {
             ForEach(items) { item in
-                NavigationLink(value: item) {
-                    TVPosterCard(item: item, thread: thread)
-                }
-                .buttonStyle(.card)
-                .onAppear {
-                    if item.id == items.last?.id {
-                        Task { await loadNextPage() }
+                TVPosterCell(item: item, thread: thread)
+                    .onAppear {
+                        if item.id == items.last?.id {
+                            Task { await loadNextPage() }
+                        }
                     }
-                }
             }
         }
         .padding(.horizontal, TVLayout.sideMargin)
