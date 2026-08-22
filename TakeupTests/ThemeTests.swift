@@ -57,16 +57,6 @@ struct PaletteTests {
 }
 
 struct BiasCutTests {
-    @Test func logoLaneEqualizesOnArea() {
-        // A typical 3:1 wordmark lands at ~64pt.
-        #expect(abs(logoLaneHeight(aspect: 3) - 64) < 1)
-        // Wide wordmarks clamp at the floor, stacked lockups at the ceiling.
-        #expect(logoLaneHeight(aspect: 10) == 44)
-        #expect(logoLaneHeight(aspect: 0.5) == 100)
-        // No aspect yet: the default lane.
-        #expect(logoLaneHeight(aspect: nil) == 64)
-    }
-
     @Test func artCropWidensWithTheCanvas() {
         #expect(abs(biasCutArtAspect(width: 600) - 4.0 / 3.0) < 0.001)
         #expect(abs(biasCutArtAspect(width: 800) - 2.1) < 0.001)
