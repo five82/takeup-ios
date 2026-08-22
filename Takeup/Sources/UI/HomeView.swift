@@ -20,7 +20,6 @@ struct HomeView: View {
     @State private var loadError: String?
     @State private var offline = false
     @State private var playbackItem: Item?
-    @State private var heroLogoAspect: Double?
 
     var body: some View {
         GeometryReader { proxy in
@@ -133,13 +132,12 @@ struct HomeView: View {
 
     private func heroView(_ hero: Item, width: CGFloat) -> some View {
         let logoURL = heroLogoURL(hero)
-        let lane = logoLaneHeight(aspect: heroLogoAspect)
-        let solidLeft: CGFloat = logoURL != nil ? lane + 76 : 160
+        let solidLeft: CGFloat = logoURL != nil ? logoBoxHeight + 76 : 160
         // The whole hero is one tap target, matching the Android app.
         return NavigationLink(value: hero) {
             BiasCutBackdrop(url: heroBackdropURL, width: width, solidLeft: solidLeft) {
                 VStack(alignment: .leading, spacing: 0) {
-                    heroIdentity(hero, logoURL: logoURL, lane: lane, width: width)
+                    heroIdentity(hero, logoURL: logoURL, width: width)
                     heroMeta(hero, width: width)
                 }
                 .padding(.horizontal, 20)
@@ -154,15 +152,9 @@ struct HomeView: View {
     }
 
     @ViewBuilder
-    private func heroIdentity(_ hero: Item, logoURL: URL?, lane: CGFloat, width: CGFloat) -> some View {
+    private func heroIdentity(_ hero: Item, logoURL: URL?, width: CGFloat) -> some View {
         if let logoURL {
-            CachedImage(url: logoURL, contentMode: .fit, onLoad: { image in
-                let aspect = Double(image.size.width / max(image.size.height, 1))
-                if heroLogoAspect != aspect {
-                    withAnimation(.spring) { heroLogoAspect = aspect }
-                }
-            }) { Color.clear }
-                .frame(width: min(CGFloat(heroLogoAspect ?? 3) * lane, width * 0.5), height: lane)
+            LogoBox(url: logoURL, width: width * 0.5, height: logoBoxHeight)
         } else {
             Text(hero.title)
                 .font(.displayMedium)

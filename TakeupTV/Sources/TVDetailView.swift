@@ -34,7 +34,6 @@ struct TVDetailView: View {
     /// The first content frame lands already dressed: rendering waits for the
     /// woven threads or a 300ms grace, whichever comes first.
     @State private var dressed = false
-    @State private var logoAspect: Double?
     /// The show's name for the episode eyebrow, resolved via the season.
     @State private var seriesName: String?
     @FocusState private var playFocused: Bool
@@ -177,16 +176,7 @@ struct TVDetailView: View {
     private func identity(for item: Item, columnWidth: CGFloat) -> some View {
         let logoURL = appEnvironment.client?.imageURL(id: item.logoImageId, tag: item.logoImageTag, width: 480)
         if let logoURL {
-            // A wider lane than the iPad head's: the logo anchors a column
-            // that owns half the screen, not a strip above a body.
-            let lane = logoLaneHeight(aspect: logoAspect) * 1.8
-            CachedImage(url: logoURL, contentMode: .fit, onLoad: { image in
-                let aspect = Double(image.size.width / max(image.size.height, 1))
-                if logoAspect != aspect {
-                    withAnimation(.spring) { logoAspect = aspect }
-                }
-            }) { Color.clear }
-                .frame(width: min(CGFloat(logoAspect ?? 3) * lane, columnWidth), height: lane)
+            LogoBox(url: logoURL, width: columnWidth, height: logoBoxHeight)
         } else {
             Text(item.title)
                 .font(.displayMedium)
@@ -203,14 +193,9 @@ struct TVDetailView: View {
     private func episodeIdentity(for item: Item, columnWidth: CGFloat) -> some View {
         let logoURL = appEnvironment.client?.imageURL(id: item.logoImageId, tag: item.logoImageTag, width: 480)
         if let logoURL {
-            let lane = logoLaneHeight(aspect: logoAspect) * 1.2
-            CachedImage(url: logoURL, contentMode: .fit, onLoad: { image in
-                let aspect = Double(image.size.width / max(image.size.height, 1))
-                if logoAspect != aspect {
-                    withAnimation(.spring) { logoAspect = aspect }
-                }
-            }) { Color.clear }
-                .frame(width: min(CGFloat(logoAspect ?? 3) * lane, columnWidth), height: lane)
+            // A leaner box than the show page's: the episode title owns this
+            // screen, the series logo only introduces it.
+            LogoBox(url: logoURL, width: columnWidth, height: 130)
             if let label = episodeLabel(item) {
                 RowLabel(text: label, color: accent.tint)
                     .padding(.top, 16)

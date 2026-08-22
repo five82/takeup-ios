@@ -14,7 +14,6 @@ struct TVHomeView: View {
     @State private var loaded = false
     @State private var loadError: String?
     @State private var playbackItem: Item?
-    @State private var heroLogoAspect: Double?
 
     var body: some View {
         GeometryReader { proxy in
@@ -170,16 +169,7 @@ struct TVHomeView: View {
     @ViewBuilder
     private func heroIdentity(_ hero: Item, logoURL: URL?, columnWidth: CGFloat) -> some View {
         if let logoURL {
-            // The lane runs larger than detail's: the logo is the column's
-            // anchor, sized to the column rather than to the iPad's head.
-            let lane = logoLaneHeight(aspect: heroLogoAspect) * 1.9
-            CachedImage(url: logoURL, contentMode: .fit, onLoad: { image in
-                let aspect = Double(image.size.width / max(image.size.height, 1))
-                if heroLogoAspect != aspect {
-                    withAnimation(.spring) { heroLogoAspect = aspect }
-                }
-            }) { Color.clear }
-                .frame(width: min(CGFloat(heroLogoAspect ?? 3) * lane, columnWidth), height: lane)
+            LogoBox(url: logoURL, width: columnWidth, height: logoBoxHeight)
         } else {
             Text(hero.title)
                 .font(.displaySmall)

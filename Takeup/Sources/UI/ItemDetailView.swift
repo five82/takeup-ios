@@ -51,7 +51,6 @@ struct ItemDetailView: View {
     /// The first content frame lands already dressed: rendering waits for the
     /// woven threads or a 300ms grace, whichever comes first.
     @State private var dressed = false
-    @State private var logoAspect: Double?
     @State private var castExpanded = false
     @State private var artworkPick: ArtworkPick?
     @State private var removalEntry: DownloadEntry?
@@ -175,24 +174,11 @@ struct ItemDetailView: View {
         let logoURL = offline
             ? downloads.artworkURL(for: item.id, kind: .logo)
             : appEnvironment.client?.imageURL(id: item.logoImageId, tag: item.logoImageTag, width: 480)
-        let lane = logoLaneHeight(aspect: logoAspect)
-        let solidLeft: CGFloat = logoURL != nil ? lane + 22 : 116
+        let solidLeft: CGFloat = logoURL != nil ? logoBoxHeight + 22 : 116
         return BiasCutBackdrop(url: detailArtURL(width: 960), width: width, solidLeft: solidLeft) {
             Group {
                 if let logoURL {
-                    // Explicit width from the decoded aspect keeps the logo
-                    // pinned to the leading edge; a stretchy frame would
-                    // center it in its lane.
-                    CachedImage(url: logoURL, contentMode: .fit, onLoad: { image in
-                        let aspect = Double(image.size.width / max(image.size.height, 1))
-                        if logoAspect != aspect {
-                            withAnimation(.spring) { logoAspect = aspect }
-                        }
-                    }) { Color.clear }
-                        .frame(
-                            width: min(CGFloat(logoAspect ?? 3) * lane, width * 0.5),
-                            height: lane
-                        )
+                    LogoBox(url: logoURL, width: width * 0.5, height: logoBoxHeight)
                 } else {
                     Text(item.title)
                         .font(.displayMedium)

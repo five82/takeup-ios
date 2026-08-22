@@ -27,12 +27,41 @@ struct BiasCutShape: Shape {
     }
 }
 
-/// Logo art equalizes on area, not bounding box: a wide wordmark and a
-/// stacked lockup carry the same visual weight. Tuned so a typical 3:1
-/// wordmark lands at 64pt tall.
-func logoLaneHeight(aspect: Double?) -> CGFloat {
-    guard let aspect, aspect > 0 else { return 64 }
-    return CGFloat(min(max((12300.0 / aspect).squareRoot(), 44), 100))
+/// Logo art standardized to a fixed box: every screen reserves the same
+/// identity space regardless of the art's shape (the library spans 0.8:1
+/// stacked lockups to 18:1 wordmarks). The logo scales to fit and pins to
+/// the box's bottom-leading corner, so it sits tight against whatever
+/// follows below. The exact fitted frame needs the decoded aspect —
+/// CachedImage's greedy placeholder would otherwise center the art in the
+/// box's leftover width.
+/// The reserved box height for a screen-owning identity (detail heads, home
+/// heroes). One value per platform keeps the occupied space constant across
+/// wildly different logo shapes; leaner contexts (the TV episode page) pass
+/// their own height.
+#if os(tvOS)
+let logoBoxHeight: CGFloat = 200
+#else
+let logoBoxHeight: CGFloat = 100
+#endif
+
+struct LogoBox: View {
+    var url: URL?
+    var width: CGFloat
+    var height: CGFloat
+
+    @State private var aspect: Double = 3
+
+    var body: some View {
+        let fittedWidth = min(CGFloat(aspect) * height, width)
+        CachedImage(url: url, contentMode: .fit, onLoad: { image in
+            let decoded = Double(image.size.width / max(image.size.height, 1))
+            if aspect != decoded {
+                withAnimation(.spring) { aspect = decoded }
+            }
+        }) { Color.clear }
+            .frame(width: fittedWidth, height: fittedWidth / CGFloat(aspect))
+            .frame(height: height, alignment: .bottomLeading)
+    }
 }
 
 /// The art crop for a bias-cut head: the phone's full-width 4:3 in compact
