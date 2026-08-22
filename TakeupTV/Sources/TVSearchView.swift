@@ -40,6 +40,9 @@ struct TVSearchView: View {
                 .frame(maxWidth: .infinity)
             }
         }
+        // sideMargin is the overscan gutter measured from the screen edge;
+        // stacked on the system inset it would double to ~160pt.
+        .ignoresSafeArea(.container, edges: .horizontal)
         .background(Color.stage)
         .navigationDestination(for: Item.self) { item in
             TVDetailView(itemId: item.id, fallbackTitle: item.title)

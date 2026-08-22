@@ -94,6 +94,9 @@ struct TVSettingsView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
+        // sideMargin is the overscan gutter measured from the screen edge;
+        // stacked on the system inset it would double to ~160pt.
+        .ignoresSafeArea(.container, edges: .horizontal)
         .background(Color.stage)
         .onAppear { discovery.start() }
         .onDisappear { discovery.stop() }

@@ -28,12 +28,15 @@ struct TVHomeView: View {
                         rows(width: proxy.size.width)
                     }
                     .padding(.bottom, TVLayout.verticalMargin)
+                    .frame(width: proxy.size.width, alignment: .leading)
                 }
             }
-            // The screen owns its overscan margins (TVLayout); the system
-            // inset would gutter the bias-cut hero off the screen edges.
-            .ignoresSafeArea()
         }
+        // The screen owns its overscan margins (TVLayout); the system inset
+        // would gutter the bias-cut hero off the screen edges. Ignoring it on
+        // the GeometryReader makes proxy.size the full screen, so the hero is
+        // cut to the true edge-to-edge width instead of the inset width.
+        .ignoresSafeArea()
         .background(Color.stage)
         .navigationDestination(for: Item.self) { item in
             TVDetailView(itemId: item.id, fallbackTitle: item.title)
