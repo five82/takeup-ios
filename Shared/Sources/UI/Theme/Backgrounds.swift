@@ -1,4 +1,6 @@
+import CoreImage
 import SwiftUI
+import UIKit
 
 // The light treatments that give screens their atmosphere. Depth in Takeup
 // comes from background light, not card shadows: every treatment paints over
@@ -42,52 +44,159 @@ struct DyeBath: View {
 /// just the film's color weather — darkened toward the ceiling and hung
 /// behind the whole screen. Fetch the 240 bucket: a blur has no detail to
 /// lose.
+///
+/// The blur is baked into the small bitmap once (GauzeStore) rather than
+/// applied as a live `.blur` layer filter: a live Gaussian re-renders at full
+/// screen resolution — 4K on the Apple TV — every composited frame, the
+/// single largest constant GPU load under Home and Detail. Blurring the tiny
+/// source before upscale looks the same, because the upscale interpolation
+/// adds no detail a screen-space blur would remove.
 struct GauzeBackground: View {
     var url: URL?
     var seed: RGB? = nil
     /// Home uses 0.9 to stay a little more colorful than Detail.
     var scrimAlphaScale: Double = 1.0
 
-    // Blur radius is in points, so a fixed value reads weaker as the canvas
-    // grows: 64 is ~6% of the iPad pane's width but only ~3% of the TV's
-    // 1920pt, which left the backdrop's composition recognizable at ten feet.
-    // Hold the iPad proportion on the big canvas instead.
+    // Blur radius is in screen points, so a fixed value reads weaker as the
+    // canvas grows: 64 is ~6% of the iPad pane's width but only ~3% of the
+    // TV's 1920pt, which left the backdrop's composition recognizable at ten
+    // feet. Hold the iPad proportion on the big canvas instead.
     #if os(tvOS)
     private let blurRadius: CGFloat = 128
     #else
     private let blurRadius: CGFloat = 64
     #endif
 
+    @State private var gauze: UIImage?
+
+    private struct BakeKey: Hashable {
+        let url: URL?
+        let width: CGFloat
+        let height: CGFloat
+    }
+
     var body: some View {
-        ZStack {
-            DyeBath(seed: seed)
-            if let url {
-                // The filled image reports its overflowing size, not the
-                // proposal; hosting it in an overlay keeps that overflow out
-                // of layout, where it would balloon the enclosing stack and
-                // shove the screen's real content off the pane (`.clipped()`
-                // trims drawing only, not the reported size).
-                Color.clear
-                    .overlay {
-                        CachedImage(url: url, contentMode: .fill) { Color.clear }
-                            .saturation(1.4)
-                            .blur(radius: blurRadius)
-                    }
-                    .ignoresSafeArea()
+        GeometryReader { proxy in
+            ZStack {
+                DyeBath(seed: seed)
+                if let gauze {
+                    // The filled image reports its overflowing size, not the
+                    // proposal; hosting it in an overlay keeps that overflow
+                    // out of layout, where it would balloon the enclosing
+                    // stack and shove the screen's real content off the pane
+                    // (`.clipped()` trims drawing only, not the reported
+                    // size).
+                    Color.clear
+                        .overlay {
+                            Image(uiImage: gauze)
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                        }
+                        .ignoresSafeArea()
+                }
+                LinearGradient(
+                    stops: [
+                        .init(color: .stage.opacity(0.55 * scrimAlphaScale), location: 0),
+                        .init(color: .stage.opacity(0.68 * scrimAlphaScale), location: 0.55),
+                        .init(color: .stage.opacity(0.88 * scrimAlphaScale), location: 1),
+                    ],
+                    startPoint: .top, endPoint: .bottom
+                )
+                .ignoresSafeArea()
             }
-            LinearGradient(
-                stops: [
-                    .init(color: .stage.opacity(0.55 * scrimAlphaScale), location: 0),
-                    .init(color: .stage.opacity(0.68 * scrimAlphaScale), location: 0.55),
-                    .init(color: .stage.opacity(0.88 * scrimAlphaScale), location: 1),
-                ],
-                startPoint: .top, endPoint: .bottom
-            )
-            .ignoresSafeArea()
+            // Keyed on size as well as url: an iPad rotation changes the
+            // upscale factor, so the baked radius must follow to keep the
+            // blur's screen proportion. Re-bakes are 240px-cheap and cached.
+            .task(id: BakeKey(url: url, width: proxy.size.width, height: proxy.size.height)) {
+                await loadGauze(size: proxy.size)
+            }
         }
         .clipped()
         .ignoresSafeArea()
     }
+
+    private func loadGauze(size: CGSize) async {
+        guard let url, size.width > 0, size.height > 0 else {
+            gauze = nil
+            return
+        }
+        // A revisited screen paints its gauze on the first frame, no fade.
+        if let base = ImageStore.shared.cached(for: url),
+           let hit = GauzeStore.cached(url: url, radius: bakedRadius(for: base, in: size)) {
+            gauze = hit
+            return
+        }
+        guard let base = await ImageStore.shared.image(for: url) else { return }
+        let baked = await GauzeStore.baked(url: url, image: base, radius: bakedRadius(for: base, in: size))
+        guard let baked, !Task.isCancelled else { return }
+        if gauze == nil {
+            withAnimation(.easeIn(duration: 0.2)) { gauze = baked }
+        } else {
+            gauze = baked
+        }
+    }
+
+    /// The live filter this replaces blurred the bitmap after it was
+    /// fill-scaled to the screen; the equivalent source-space radius is the
+    /// screen-space radius divided by that upscale factor.
+    private func bakedRadius(for image: UIImage, in size: CGSize) -> CGFloat {
+        let scale = max(
+            size.width / max(image.size.width, 1),
+            size.height / max(image.size.height, 1)
+        )
+        return blurRadius / max(scale, 1)
+    }
+}
+
+/// Baked gauze bitmaps, keyed by artwork URL and rounded radius (an iPad
+/// rotation shifts the equivalent radius; the same art can need two bakes).
+@MainActor
+enum GauzeStore {
+    private struct Key: Hashable {
+        let url: URL
+        let radius: Int
+    }
+
+    private static var cache: [Key: UIImage] = [:]
+    private static var inFlight: [Key: Task<UIImage?, Never>] = [:]
+
+    static func cached(url: URL, radius: CGFloat) -> UIImage? {
+        cache[Key(url: url, radius: Int(radius.rounded()))]
+    }
+
+    static func baked(url: URL, image: UIImage, radius: CGFloat) async -> UIImage? {
+        let key = Key(url: url, radius: max(Int(radius.rounded()), 1))
+        if let hit = cache[key] { return hit }
+        if let running = inFlight[key] { return await running.value }
+        let task = Task.detached(priority: .userInitiated) {
+            bakeGauze(image, radius: CGFloat(key.radius))
+        }
+        inFlight[key] = task
+        let baked = await task.value
+        inFlight[key] = nil
+        if let baked { cache[key] = baked }
+        return baked
+    }
+}
+
+/// One context for every bake: CIContext is expensive to create and safe to
+/// share across threads.
+private let gauzeCIContext = CIContext()
+
+private func bakeGauze(_ image: UIImage, radius: CGFloat) -> UIImage? {
+    guard let input = CIImage(image: image) else { return nil }
+    let saturated = input.applyingFilter(
+        "CIColorControls", parameters: [kCIInputSaturationKey: 1.4]
+    )
+    // Clamp before blurring so the edges sample the image rather than a
+    // transparent border; the live filter's edge falloff fell offscreen
+    // because the filled image overflowed the pane.
+    let blurred = saturated
+        .clampedToExtent()
+        .applyingFilter("CIGaussianBlur", parameters: [kCIInputRadiusKey: radius])
+        .cropped(to: input.extent)
+    guard let output = gauzeCIContext.createCGImage(blurred, from: blurred.extent) else { return nil }
+    return UIImage(cgImage: output)
 }
 
 /// A thread-colored field pouring from the top-leading corner, like house
