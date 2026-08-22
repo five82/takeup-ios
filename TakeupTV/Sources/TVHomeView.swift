@@ -197,39 +197,56 @@ struct TVHomeView: View {
     }
 
     @FocusState private var focusedCard: RowFocus?
-    @State private var rowMemory: [String: Int64] = [:]
+    @State private var rowOffsets: [String: CGFloat] = [:]
+    /// Upward row entry surfaces as two focus changes — card to nil, then nil
+    /// to the landing card — so the origin of a move has to be remembered, not
+    /// read from the change's `old`.
+    @State private var lastFocus: RowFocus?
 
-    private var rowTable: [String: [Item]] {
-        var table = [
-            "Continue Watching": continueWatching,
-            "Next Up": nextUp,
-            "Recently Added": recentlyAdded,
+    private var rowGeometry: [String: (items: [Item], cardWidth: CGFloat)] {
+        var table: [String: (items: [Item], cardWidth: CGFloat)] = [
+            "Continue Watching": (continueWatching, TVLayout.thumbWidth),
+            "Next Up": (nextUp, TVLayout.thumbWidth),
+            "Recently Added": (recentlyAdded, TVLayout.posterWidth),
         ]
-        for shelf in discovery { table[shelf.title] = shelf.items }
+        for shelf in discovery { table[shelf.title] = (shelf.items, TVLayout.posterWidth) }
         return table
     }
 
-    /// Rows remember their last-focused card, first card by default — the
-    /// shelf behavior of UIKit's remembersLastFocusedIndexPath and the
-    /// Android app's Compose rows. Geometry alone is not enough: a press
-    /// that arrives while the previous move's scroll is still animating
-    /// enters the next row from the row section's full-width frame, landing
-    /// on whichever card sits near the screen's center.
+    /// The screen-space center X of a row's card: leading margin, minus how
+    /// far the row is scrolled, plus the fixed card pitch.
+    private func cardCenterX(in row: (items: [Item], cardWidth: CGFloat), title: String, index: Int) -> CGFloat {
+        TVLayout.sideMargin - (rowOffsets[title] ?? 0)
+            + CGFloat(index) * (row.cardWidth + TVLayout.cardSpacing) + row.cardWidth / 2
+    }
+
+    /// A vertical press should land on the card straight below or above the
+    /// one it left — the line the focus engine promises but does not reliably
+    /// deliver here: entering a row that has scrolled off screen lands a card
+    /// to the right of the straight line, and a press that arrives while the
+    /// previous move's scroll is still animating enters through the row
+    /// section's full-width frame and lands near the screen's center. The
+    /// steering recomputes the target from the rows' known layout — fixed
+    /// card widths and spacing plus tracked scroll offsets — and corrects the
+    /// engine's landing. No history: the target is always the on-screen card
+    /// in line with where focus came from, so the corrected card is realized
+    /// and the reassignment cannot be dropped by the lazy stack.
     private func steerRowFocus(from old: RowFocus?, to new: RowFocus?) {
         guard let new else { return }
-        if old?.row == new.row {
-            rowMemory[new.row] = new.id
-            return
-        }
-        let items = rowTable[new.row] ?? []
-        let remembered = rowMemory[new.row].flatMap { id in
-            items.contains { $0.id == id } ? id : nil
-        }
-        let target = remembered ?? items.first?.id
-        if let target, target != new.id {
-            focusedCard = RowFocus(row: new.row, id: target)
-        } else {
-            rowMemory[new.row] = new.id
+        let origin = old ?? lastFocus
+        lastFocus = new
+        guard let origin, origin.row != new.row,
+              let originRow = rowGeometry[origin.row], let newRow = rowGeometry[new.row],
+              !newRow.items.isEmpty,
+              let originIndex = originRow.items.firstIndex(where: { $0.id == origin.id })
+        else { return }
+        let x = cardCenterX(in: originRow, title: origin.row, index: originIndex)
+        let lead = TVLayout.sideMargin - (rowOffsets[new.row] ?? 0)
+        let slot = (x - lead - newRow.cardWidth / 2) / (newRow.cardWidth + TVLayout.cardSpacing)
+        let target = min(max(Int(slot.rounded()), 0), newRow.items.count - 1)
+        let targetID = newRow.items[target].id
+        if targetID != new.id {
+            focusedCard = RowFocus(row: new.row, id: targetID)
         }
     }
 
@@ -285,6 +302,11 @@ struct TVHomeView: View {
                 .padding(.vertical, 30)
             }
             .scrollClipDisabled()
+            .onScrollGeometryChange(for: CGFloat.self) { geometry in
+                geometry.contentOffset.x
+            } action: { _, offset in
+                rowOffsets[title] = offset
+            }
             // Each shelf is one focus section, so a vertical swipe lands in
             // the neighboring row even when it is scrolled past the column
             // the swipe started from.
@@ -308,6 +330,11 @@ struct TVHomeView: View {
                 .padding(.vertical, 30)
             }
             .scrollClipDisabled()
+            .onScrollGeometryChange(for: CGFloat.self) { geometry in
+                geometry.contentOffset.x
+            } action: { _, offset in
+                rowOffsets[title] = offset
+            }
             .focusSection()
         }
         .padding(.top, TVLayout.rowSpacing - 30)
