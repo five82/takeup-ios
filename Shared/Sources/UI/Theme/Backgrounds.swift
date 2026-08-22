@@ -48,6 +48,16 @@ struct GauzeBackground: View {
     /// Home uses 0.9 to stay a little more colorful than Detail.
     var scrimAlphaScale: Double = 1.0
 
+    // Blur radius is in points, so a fixed value reads weaker as the canvas
+    // grows: 64 is ~6% of the iPad pane's width but only ~3% of the TV's
+    // 1920pt, which left the backdrop's composition recognizable at ten feet.
+    // Hold the iPad proportion on the big canvas instead.
+    #if os(tvOS)
+    private let blurRadius: CGFloat = 128
+    #else
+    private let blurRadius: CGFloat = 64
+    #endif
+
     var body: some View {
         ZStack {
             DyeBath(seed: seed)
@@ -61,7 +71,7 @@ struct GauzeBackground: View {
                     .overlay {
                         CachedImage(url: url, contentMode: .fill) { Color.clear }
                             .saturation(1.4)
-                            .blur(radius: 64)
+                            .blur(radius: blurRadius)
                     }
                     .ignoresSafeArea()
             }
