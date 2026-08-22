@@ -56,6 +56,9 @@ struct TVHomeView: View {
                 EmptyState(message: "Play something and it will show up here.")
             }
         }
+        .onChange(of: focusedCard) { old, new in
+            steerRowFocus(from: old, to: new)
+        }
         .task { await load() }
     }
 
@@ -162,6 +165,50 @@ struct TVHomeView: View {
 
     // MARK: - Rows
 
+    /// A focused card, identified by row and item (the same item can sit in
+    /// two rows, so the id alone is ambiguous).
+    private struct RowFocus: Hashable {
+        let row: String
+        let id: Int64
+    }
+
+    @FocusState private var focusedCard: RowFocus?
+    @State private var rowMemory: [String: Int64] = [:]
+
+    private var rowTable: [String: [Item]] {
+        var table = [
+            "Continue Watching": continueWatching,
+            "Next Up": nextUp,
+            "Recently Added": recentlyAdded,
+        ]
+        for shelf in discovery { table[shelf.title] = shelf.items }
+        return table
+    }
+
+    /// Rows remember their last-focused card, first card by default — the
+    /// shelf behavior of UIKit's remembersLastFocusedIndexPath and the
+    /// Android app's Compose rows. Geometry alone is not enough: a press
+    /// that arrives while the previous move's scroll is still animating
+    /// enters the next row from the row section's full-width frame, landing
+    /// on whichever card sits near the screen's center.
+    private func steerRowFocus(from old: RowFocus?, to new: RowFocus?) {
+        guard let new else { return }
+        if old?.row == new.row {
+            rowMemory[new.row] = new.id
+            return
+        }
+        let items = rowTable[new.row] ?? []
+        let remembered = rowMemory[new.row].flatMap { id in
+            items.contains { $0.id == id } ? id : nil
+        }
+        let target = remembered ?? items.first?.id
+        if let target, target != new.id {
+            focusedCard = RowFocus(row: new.row, id: target)
+        } else {
+            rowMemory[new.row] = new.id
+        }
+    }
+
     @ViewBuilder
     private func rows(width: CGFloat) -> some View {
         if !continueWatching.isEmpty {
@@ -207,6 +254,7 @@ struct TVHomeView: View {
                         ) {
                             playbackItem = item
                         }
+                        .focused($focusedCard, equals: RowFocus(row: title, id: item.id))
                     }
                 }
                 .padding(.horizontal, TVLayout.sideMargin)
@@ -229,6 +277,7 @@ struct TVHomeView: View {
                 LazyHStack(alignment: .top, spacing: TVLayout.cardSpacing) {
                     ForEach(items) { item in
                         TVPosterCell(item: item, width: TVLayout.posterWidth)
+                            .focused($focusedCard, equals: RowFocus(row: title, id: item.id))
                     }
                 }
                 .padding(.horizontal, TVLayout.sideMargin)
