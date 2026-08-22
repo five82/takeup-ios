@@ -426,9 +426,6 @@ struct TVDetailView: View {
             }
             if !label.trimmingCharacters(in: .whitespaces).isEmpty { badges.append(label) }
         }
-        if let size = item.media?.size, size > 0 {
-            badges.append(ByteCountFormatter.string(fromByteCount: size, countStyle: .file))
-        }
         return HStack(spacing: 10) {
             ForEach(badges, id: \.self) { badge in
                 TechBadge(text: badge)
