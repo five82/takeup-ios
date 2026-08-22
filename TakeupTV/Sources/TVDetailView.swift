@@ -35,8 +35,6 @@ struct TVDetailView: View {
     /// woven threads or a 300ms grace, whichever comes first.
     @State private var dressed = false
     @State private var logoAspect: Double?
-    /// Episodes after this one in the same season, for the Up Next strip.
-    @State private var upNext: [Item] = []
     /// The show's name for the episode eyebrow, resolved via the season.
     @State private var seriesName: String?
     @FocusState private var playFocused: Bool
@@ -84,11 +82,13 @@ struct TVDetailView: View {
 
     // MARK: - Head
 
-    /// The band fraction per kind: movies and episodes take the working
-    /// column; shows keep the band short so the episode strip is fully on
-    /// screen at rest.
+    /// The band fraction per kind: movies take the working column with its
+    /// tagline and gate lines; shows and episodes wear the short band —
+    /// shows so the episode strip is fully on screen at rest, episodes
+    /// because their columns are lean and the screencap is a composed film
+    /// frame that deserves the widest reveal.
     private func bandFraction(for item: Item) -> CGFloat {
-        item.kind == "show" ? TVLayout.showBand : TVLayout.movieBand
+        item.kind == "movie" ? TVLayout.movieBand : TVLayout.showBand
     }
 
     private func head(for item: Item, size: CGSize) -> some View {
@@ -101,7 +101,13 @@ struct TVDetailView: View {
         ) {
             column(for: item, width: size.width)
                 .padding(.leading, TVLayout.sideMargin)
-                .padding(.top, TVLayout.verticalMargin + 14)
+                // Centered on the band's height, like the home hero: the
+                // column's slack splits above and below instead of pooling
+                // under the chapters line. The top reserve keeps the tallest
+                // columns (a gated title's two pill rows and reason) clear
+                // of the screen edge; any spill goes harmlessly downward.
+                .frame(height: band - 44, alignment: .leading)
+                .padding(.top, 44)
         }
         // The full-width section keeps the controls reachable: an up-press
         // from a card right of the column would otherwise find no candidate
@@ -119,7 +125,7 @@ struct TVDetailView: View {
                     RowLabel(text: eyebrow, color: accent.tint)
                 }
                 Text(item.title)
-                    .font(.headlineMedium)
+                    .font(.displaySmall)
                     .foregroundStyle(Color.ink)
                     .lineLimit(2)
                     .padding(.top, 10)
@@ -127,31 +133,34 @@ struct TVDetailView: View {
                 identity(for: item, columnWidth: columnWidth)
             }
             metaLine(for: item)
-                .padding(.top, 18)
+                .padding(.top, 20)
             if item.kind != "episode", let tagline = item.tagline, !tagline.isEmpty {
                 Text(tagline)
-                    .font(.bodyMedium)
+                    .font(.bodyLarge)
                     .italic()
                     .foregroundStyle(Color.ink.opacity(0.92))
                     .lineLimit(2)
-                    .padding(.top, 10)
+                    // Claims its two lines even when the band runs tight, so
+                    // the voice line never ellipsizes against the gate text.
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 12)
             }
             if item.isPlayable {
                 playControls(for: item)
-                    .padding(.top, 24)
+                    .padding(.top, 26)
                 if let reason = blockReason(for: item) {
                     statusLine(icon: "tv.slash", text: reason)
                 }
                 if let fraction = progressFraction(item) {
                     ThreadProgress(fraction: fraction, color: accent.tint)
-                        .frame(width: columnWidth * 0.6)
+                        .frame(width: columnWidth * 0.75)
                         .padding(.top, 18)
                 }
                 badgeStrip(for: item)
-                    .padding(.top, 20)
+                    .padding(.top, 22)
                 if let chapters = item.media?.chapters, chapters.count > 1 {
                     Text("\(chapters.count) chapters")
-                        .font(.labelSmall)
+                        .font(.labelMedium)
                         .foregroundStyle(Color.muted)
                         .padding(.top, 12)
                 }
@@ -159,12 +168,15 @@ struct TVDetailView: View {
                 showControls(for: item)
                     .padding(.top, 24)
             }
-            if let overview = item.overview, !overview.isEmpty {
+            // Shows keep a short overview beside the art — their screen
+            // belongs to the episodes; movies and episodes tell the story
+            // below the band, at full reading size.
+            if item.kind == "show", let overview = item.overview, !overview.isEmpty {
                 Text(overview)
-                    .font(.bodySmall)
-                    .foregroundStyle(Color.muted)
+                    .font(.bodyMedium)
+                    .foregroundStyle(Color.ink.opacity(0.85))
                     .lineSpacing(4)
-                    .lineLimit(overviewLines(for: item))
+                    .lineLimit(3)
                     .padding(.top, 22)
             }
         }
@@ -175,7 +187,9 @@ struct TVDetailView: View {
     private func identity(for item: Item, columnWidth: CGFloat) -> some View {
         let logoURL = appEnvironment.client?.imageURL(id: item.logoImageId, tag: item.logoImageTag, width: 480)
         if let logoURL {
-            let lane = logoLaneHeight(aspect: logoAspect) * 1.5
+            // A wider lane than the iPad head's: the logo anchors a column
+            // that owns half the screen, not a strip above a body.
+            let lane = logoLaneHeight(aspect: logoAspect) * 1.8
             CachedImage(url: logoURL, contentMode: .fit, onLoad: { image in
                 let aspect = Double(image.size.width / max(image.size.height, 1))
                 if logoAspect != aspect {
@@ -185,9 +199,9 @@ struct TVDetailView: View {
                 .frame(width: min(CGFloat(logoAspect ?? 3) * lane, columnWidth), height: lane)
         } else {
             Text(item.title)
-                .font(.displaySmall)
+                .font(.displayMedium)
                 .foregroundStyle(Color.ink)
-                .lineLimit(3)
+                .lineLimit(2)
         }
     }
 
@@ -199,28 +213,30 @@ struct TVDetailView: View {
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
-    /// The column budgets prose per altitude: a movie gets four lines, a show
-    /// three (its screen belongs to the episodes), an episode six (this page
-    /// is the one place the text matters most).
-    private func overviewLines(for item: Item) -> Int {
-        switch item.kind {
-        case "show": 3
-        case "episode": 6
-        default: 4
-        }
-    }
-
     // MARK: - Below the band
 
     @ViewBuilder
     private func belowBand(for item: Item) -> some View {
         if item.kind == "show" {
             seasonSection()
+        } else {
+            overviewBlock(for: item)
         }
-        if item.kind == "episode" {
-            upNextSection(for: item)
+        billingGrid(for: item)
+    }
+
+    /// The story at reading size, on the open ground under the column. The
+    /// band holds the working controls; the prose gets the room it needs.
+    @ViewBuilder
+    private func overviewBlock(for item: Item) -> some View {
+        if let overview = item.overview, !overview.isEmpty {
+            Text(overview)
+                .font(.bodyLarge)
+                .foregroundStyle(Color.ink.opacity(0.92))
+                .lineSpacing(5)
+                .frame(maxWidth: 1240, alignment: .leading)
+                .padding(.top, 30)
         }
-        billingStrip(for: item)
     }
 
     private func metaLine(for item: Item) -> some View {
@@ -239,7 +255,7 @@ struct TVDetailView: View {
         }
         for genre in (item.genres ?? []).prefix(3) { parts.append(genre.name) }
         return Text(parts.joined(separator: " · "))
-            .font(.bodySmall)
+            .font(.bodyLarge)
             .foregroundStyle(Color.ink)
     }
 
@@ -252,9 +268,10 @@ struct TVDetailView: View {
 
     private func playControls(for item: Item) -> some View {
         let blocked = blockReason(for: item) != nil
-        // Natural width: the pills may run a little past the column toward
-        // the seam's open ground rather than wrap their labels.
-        return HStack(spacing: 16) {
+        // A wrapping flow, not an HStack: pills keep their natural size and a
+        // long Resume label pushes the toggle to a second row instead of
+        // compressing labels or spilling across the seam onto the art.
+        return TVFlowLayout {
             Button {
                 playbackItem = PlaybackRequest(item: item)
             } label: {
@@ -288,7 +305,6 @@ struct TVDetailView: View {
                 watchedToggle(for: item)
             }
         }
-        .fixedSize(horizontal: true, vertical: false)
     }
 
     private func playLabel(for item: Item) -> String {
@@ -300,7 +316,7 @@ struct TVDetailView: View {
 
     private func showControls(for item: Item) -> some View {
         let next = episodes.first { !($0.progress?.played ?? false) }
-        return HStack(spacing: 16) {
+        return TVFlowLayout {
             Button {
                 if let next { playbackItem = PlaybackRequest(item: next) }
             } label: {
@@ -351,11 +367,14 @@ struct TVDetailView: View {
     }
 
     private func statusLine(icon: String, text: String) -> some View {
-        HStack(spacing: 10) {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
             Image(systemName: icon)
-                .font(.system(size: TypeScale.bodySmall))
+                .font(.system(size: TypeScale.bodyMedium))
             Text(text)
-                .font(.bodySmall)
+                .font(.bodyMedium)
+                // The gate's reason must never ellipsize: it wraps at its
+                // full length even when the band's height runs tight.
+                .fixedSize(horizontal: false, vertical: true)
         }
         .foregroundStyle(Color.muted)
         .padding(.top, 14)
@@ -535,56 +554,32 @@ struct TVDetailView: View {
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
-    // MARK: - Up Next
-
-    /// The rest of the season under an episode's head, so the next episode
-    /// never requires backing out to the show. Reuses the show page's cells.
-    @ViewBuilder
-    private func upNextSection(for item: Item) -> some View {
-        if !upNext.isEmpty {
-            let label = (item.seasonNumber ?? 0) > 0 ? "Season \(item.seasonNumber ?? 0) · Up Next" : "Up Next"
-            VStack(alignment: .leading, spacing: 0) {
-                RowLabel(text: label, color: accent.tint)
-                ScrollView(.horizontal, showsIndicators: false) {
-                    LazyHStack(alignment: .top, spacing: TVLayout.cardSpacing) {
-                        ForEach(upNext) { episode in
-                            episodeCell(episode)
-                        }
-                    }
-                    .padding(.vertical, 30)
-                }
-                .scrollClipDisabled()
-                .focusSection()
-            }
-            .padding(.top, 26)
-        }
-    }
-
     // MARK: - Credits
 
-    /// Loom stores no people photos, so the cast is billing, not headshots: a
-    /// strip of content-sized type cards, the way a one-sheet credits its
+    /// Loom stores no people photos, so the cast is billing, not headshots:
+    /// columns of content-sized type cards, the way a one-sheet credits its
     /// cast. The director leads with the accent role label.
     @ViewBuilder
-    private func billingStrip(for item: Item) -> some View {
+    private func billingGrid(for item: Item) -> some View {
         if let credits = item.credits, !credits.isEmpty {
             let ordered = credits.sorted { a, b in
                 (a.role == "Director" ? 0 : 1) < (b.role == "Director" ? 0 : 1)
             }
-            VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 8) {
                 RowLabel(text: "Cast")
-                ScrollView(.horizontal, showsIndicators: false) {
-                    LazyHStack(alignment: .top, spacing: 48) {
-                        ForEach(ordered, id: \.self) { credit in
-                            TVBillingCard(credit: credit, accent: accent.tint)
-                        }
+                LazyVGrid(
+                    columns: [GridItem(.adaptive(minimum: 400, maximum: 580), spacing: 44, alignment: .topLeading)],
+                    alignment: .leading,
+                    spacing: 30
+                ) {
+                    ForEach(ordered, id: \.self) { credit in
+                        TVBillingCard(credit: credit, accent: accent.tint)
                     }
-                    .padding(.vertical, 24)
                 }
-                .scrollClipDisabled()
+                .padding(.vertical, 18)
                 .focusSection()
             }
-            .padding(.top, 30)
+            .padding(.top, 34)
         }
     }
 
@@ -618,10 +613,6 @@ struct TVDetailView: View {
             } else if loaded.kind == "season" {
                 episodes = try await client.children(of: itemId).items
             } else if loaded.kind == "episode", let seasonId = loaded.parentId {
-                // The Up Next strip: siblings after this episode, in order.
-                let number = loaded.episodeNumber ?? 0
-                let siblings = (try? await client.children(of: seasonId).items) ?? []
-                upNext = siblings.filter { $0.kind == "episode" && ($0.episodeNumber ?? 0) > number }
                 // The item endpoint omits series_title; the eyebrow needs the
                 // show's name, two parent hops away (episode → season → show).
                 if loaded.seriesTitle == nil,

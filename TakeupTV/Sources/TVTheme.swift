@@ -22,7 +22,7 @@ enum TVLayout {
     static let heroSeam: CGFloat = 0.36
     static let heroBand: CGFloat = 0.574
     static let detailSeam: CGFloat = 0.46
-    static let movieBand: CGFloat = 0.62
+    static let movieBand: CGFloat = 0.60
     static let showBand: CGFloat = 0.52
 }
 
@@ -263,6 +263,48 @@ struct TVThumbCell: View {
         }
         .frame(width: width, alignment: .leading)
         .animation(.easeOut(duration: 0.18), value: focused)
+    }
+}
+
+/// Left-aligned flow for the detail controls: pills keep their natural size
+/// and wrap to the next line instead of compressing their labels or spilling
+/// across the seam onto the art.
+struct TVFlowLayout: Layout {
+    var spacing: CGFloat = 16
+    var rowSpacing: CGFloat = 16
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let maxWidth = proposal.width ?? .infinity
+        var x: CGFloat = 0, y: CGFloat = 0, rowHeight: CGFloat = 0, width: CGFloat = 0
+        for view in subviews {
+            var size = view.sizeThatFits(.unspecified)
+            size.width = min(size.width, maxWidth)
+            if x > 0, x + size.width > maxWidth {
+                x = 0
+                y += rowHeight + rowSpacing
+                rowHeight = 0
+            }
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+            width = max(width, x - spacing)
+        }
+        return CGSize(width: width, height: y + rowHeight)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var x = bounds.minX, y = bounds.minY, rowHeight: CGFloat = 0
+        for view in subviews {
+            var size = view.sizeThatFits(.unspecified)
+            size.width = min(size.width, bounds.width)
+            if x > bounds.minX, x + size.width > bounds.maxX {
+                x = bounds.minX
+                y += rowHeight + rowSpacing
+                rowHeight = 0
+            }
+            view.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+        }
     }
 }
 
