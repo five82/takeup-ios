@@ -86,26 +86,13 @@ struct TVRowButtonStyle: ButtonStyle {
     }
 }
 
-/// The hero is one big click target, like the Android app; under focus it
-/// breathes rather than lifts — a bias-cut backdrop on a card platter would
-/// break the seamless ground the cut depends on. The ember glow bleeds out
-/// along the bias-cut edge, so a still frame shows the hero holds focus.
+/// Bare label for the home hero's button: the focus treatment is painted on
+/// the whole backdrop by TVHomeView (keyed on the button's focus), and a
+/// system style would wash its white focus highlight over the identity block
+/// — the same trap as the player's full-screen remote catcher.
 struct TVHeroButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
-        HeroLabel(configuration: configuration)
-    }
-
-    private struct HeroLabel: View {
-        @Environment(\.isFocused) private var focused
-        let configuration: Configuration
-
-        var body: some View {
-            configuration.label
-                .scaleEffect(focused ? 1.02 : 1, anchor: .bottom)
-                .brightness(focused ? 0.06 : 0)
-                .shadow(color: Color.ember.opacity(focused ? 0.45 : 0), radius: 30, y: 12)
-                .animation(.easeOut(duration: 0.2), value: focused)
-        }
+        configuration.label
     }
 }
 

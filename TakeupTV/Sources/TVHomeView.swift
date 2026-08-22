@@ -83,27 +83,46 @@ struct TVHomeView: View {
         let logoURL = appEnvironment.client?.imageURL(id: hero.logoImageId, tag: hero.logoImageTag, width: 480)
         let lane = logoLaneHeight(aspect: heroLogoAspect) * 1.5
         let solidLeft: CGFloat = logoURL != nil ? lane + 110 : 230
-        // The whole hero is one click target, matching the Android app; it
-        // pushes through the item-binding destination below, since a
-        // NavigationLink styled as the hero would fight the focus engine's
-        // card treatment.
-        return Button {
-            heroPush = hero
-        } label: {
-            BiasCutBackdrop(url: heroBackdropURL, width: width, solidLeft: solidLeft) {
+        // Only the identity block is focusable, not the full-width backdrop:
+        // a down-press moves to the card nearest the focused frame, and the
+        // full-width hero handed focus to whichever card sat under the
+        // screen's center instead of the row's first card. Select still opens
+        // the hero whenever it holds focus, and the focus treatment below
+        // paints the whole backdrop, so from the couch the hero remains one
+        // target. (A Button rather than a NavigationLink because a link
+        // styled as the hero would fight the focus engine's card treatment;
+        // it pushes through the item-binding destination below.)
+        return BiasCutBackdrop(url: heroBackdropURL, width: width, solidLeft: solidLeft) {
+            Button {
+                heroPush = hero
+            } label: {
                 VStack(alignment: .leading, spacing: 0) {
                     heroIdentity(hero, logoURL: logoURL, lane: lane, width: width)
                     heroMeta(hero, width: width)
                 }
-                .padding(.horizontal, TVLayout.sideMargin)
-                .padding(.bottom, 26)
+                .contentShape(Rectangle())
             }
-            .contentShape(Rectangle())
+            .buttonStyle(TVHeroButtonStyle())
+            .focused($heroFocused)
+            .padding(.horizontal, TVLayout.sideMargin)
+            .padding(.bottom, 26)
         }
-        .buttonStyle(TVHeroButtonStyle())
+        // The full-width section keeps the hero reachable: an up-press from a
+        // card right of the identity block would otherwise find no candidate
+        // (focus search wants horizontal overlap) and go nowhere.
+        .focusSection()
+        // The hero breathes rather than lifts — a bias-cut backdrop on a card
+        // platter would break the seamless ground the cut depends on. The
+        // ember glow bleeds out along the bias-cut edge, so a still frame
+        // shows the hero holds focus.
+        .scaleEffect(heroFocused ? 1.02 : 1, anchor: .bottom)
+        .brightness(heroFocused ? 0.06 : 0)
+        .shadow(color: Color.ember.opacity(heroFocused ? 0.45 : 0), radius: 30, y: 12)
+        .animation(.easeOut(duration: 0.2), value: heroFocused)
     }
 
     @State private var heroPush: Item?
+    @FocusState private var heroFocused: Bool
 
     @ViewBuilder
     private func heroIdentity(_ hero: Item, logoURL: URL?, lane: CGFloat, width: CGFloat) -> some View {
