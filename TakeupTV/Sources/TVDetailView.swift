@@ -556,21 +556,34 @@ struct TVDetailView: View {
     /// Loom stores no people photos, so the cast is billing, not headshots:
     /// columns of content-sized type cards, the way a one-sheet credits its
     /// cast. The director leads with the accent role label.
+    ///
+    /// A non-lazy grid, deliberately: on show pages the whole grid sits below
+    /// the fold, and a LazyVGrid down there never instantiates its cards — the
+    /// focus engine sees an empty section and a down-press from the episode
+    /// strip goes nowhere. The cast is small enough to build eagerly.
     @ViewBuilder
     private func billingGrid(for item: Item) -> some View {
         if let credits = item.credits, !credits.isEmpty {
             let ordered = credits.sorted { a, b in
                 (a.role == "Director" ? 0 : 1) < (b.role == "Director" ? 0 : 1)
             }
+            let columns = 4
             VStack(alignment: .leading, spacing: 8) {
                 RowLabel(text: "Cast")
-                LazyVGrid(
-                    columns: [GridItem(.adaptive(minimum: 400, maximum: 580), spacing: 44, alignment: .topLeading)],
-                    alignment: .leading,
-                    spacing: 30
-                ) {
-                    ForEach(ordered, id: \.self) { credit in
-                        TVBillingCard(credit: credit, accent: accent.tint)
+                VStack(alignment: .leading, spacing: 30) {
+                    ForEach(Array(stride(from: 0, to: ordered.count, by: columns)), id: \.self) { start in
+                        let row = ordered[start..<min(start + columns, ordered.count)]
+                        HStack(alignment: .top, spacing: 44) {
+                            ForEach(row, id: \.self) { credit in
+                                TVBillingCard(credit: credit, accent: accent.tint)
+                                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                            }
+                            // Fillers keep a short last row's columns the same
+                            // width as the full rows above, so names align.
+                            ForEach(0..<(columns - row.count), id: \.self) { _ in
+                                Color.clear.frame(maxWidth: .infinity, maxHeight: 0)
+                            }
+                        }
                     }
                 }
                 .padding(.vertical, 18)
