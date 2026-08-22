@@ -9,7 +9,7 @@ import SwiftUI
 enum TVLayout {
     static let sideMargin: CGFloat = 80
     static let verticalMargin: CGFloat = 60
-    static let posterWidth: CGFloat = 220
+    static let posterWidth: CGFloat = 240
     static let thumbWidth: CGFloat = 400
     static let cardSpacing: CGFloat = 36
     static let rowSpacing: CGFloat = 44
@@ -118,7 +118,7 @@ struct TVPosterCard: View {
 
     var body: some View {
         ZStack {
-            if let url = appEnvironment.client?.imageURL(id: item.posterImageId, tag: item.posterImageTag, width: 480) {
+            if let url = appEnvironment.client?.imageURL(id: item.posterImageId, tag: item.posterImageTag, width: 600) {
                 CachedImage(url: url, contentMode: .fill)
             } else {
                 MissingArt(title: item.title, tint: thread)
