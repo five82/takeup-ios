@@ -362,6 +362,13 @@ private struct TVPlayerSessionView: View {
         .background(consoleFill, in: RoundedRectangle(cornerRadius: 32))
         .overlay(RoundedRectangle(cornerRadius: 32).stroke(chipStroke, lineWidth: 1))
         .defaultFocus($playPauseFocused, true)
+        // defaultFocus alone loses a race at session start: the Chapters pill
+        // arrives with the async chapter load and steals initial focus. Every
+        // time the console comes on screen, Play takes focus.
+        .task {
+            try? await Task.sleep(for: .milliseconds(80))
+            playPauseFocused = true
+        }
     }
 
     private func consolePill(_ title: String, action: @escaping () -> Void) -> some View {
