@@ -5,12 +5,15 @@ import SwiftUI
 /// fresh mpv instance), which also final-reports the finished episode.
 struct TVPlayerScreen: View {
     let item: Item
+    /// Restart: ignore the resume point and play from the top. Only the
+    /// original item starts over; a chained episode resumes as usual.
+    var fromStart: Bool = false
 
     @State private var chained: Item?
 
     var body: some View {
         let active = chained ?? item
-        TVPlayerSessionView(item: active) { next in
+        TVPlayerSessionView(item: active, fromStart: chained == nil && fromStart) { next in
             chained = next
         }
         .id(active.id)
@@ -38,6 +41,7 @@ private enum ConsolePanel: String {
 /// simply dropped: the LAN self-heals on the next tick.
 private struct TVPlayerSessionView: View {
     let item: Item
+    var fromStart: Bool = false
     let playNext: (Item) -> Void
 
     @Environment(AppEnvironment.self) private var appEnvironment
@@ -514,7 +518,7 @@ private struct TVPlayerSessionView: View {
                 return
             }
             chapters = playback.media.chapters ?? []
-            startSeconds = Double(item.progress?.resumePositionMs ?? 0) / 1000
+            startSeconds = fromStart ? 0 : Double(item.progress?.resumePositionMs ?? 0) / 1000
             playbackURL = client.streamURL(for: playback)
         } catch {
             loadError = error.localizedDescription

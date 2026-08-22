@@ -19,14 +19,26 @@ struct TVDetailView: View {
     @State private var selectedSeasonId: Int64?
     @State private var episodes: [Item] = []
     @State private var loadError: String?
-    @State private var playbackItem: Item?
+    /// What to play and whether to ignore the resume point. A struct rather
+    /// than a side flag: the cover's content closure can capture stale view
+    /// state, but the presented item always arrives fresh.
+    private struct PlaybackRequest: Identifiable {
+        let item: Item
+        var fromStart = false
+        var id: Int64 { item.id }
+    }
+
+    @State private var playbackItem: PlaybackRequest?
     @State private var accent = WovenAccent.neutral
     @State private var threads: [RGB] = []
     /// The first content frame lands already dressed: rendering waits for the
     /// woven threads or a 300ms grace, whichever comes first.
     @State private var dressed = false
     @State private var logoAspect: Double?
-    @State private var castExpanded = false
+    /// Episodes after this one in the same season, for the Up Next strip.
+    @State private var upNext: [Item] = []
+    /// The show's name for the episode eyebrow, resolved via the season.
+    @State private var seriesName: String?
     @FocusState private var playFocused: Bool
 
     var body: some View {
@@ -36,8 +48,8 @@ struct TVDetailView: View {
                 if let item, dressed {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 0) {
-                            head(for: item, width: proxy.size.width)
-                            detailBody(for: item)
+                            head(for: item, size: proxy.size)
+                            belowBand(for: item)
                                 .padding(.horizontal, TVLayout.sideMargin)
                         }
                         .padding(.bottom, TVLayout.verticalMargin)
@@ -64,96 +76,151 @@ struct TVDetailView: View {
         .navigationDestination(for: TVPersonSearch.self) { person in
             TVSearchView(initialQuery: person.name)
         }
-        .fullScreenCover(item: $playbackItem, onDismiss: { Task { await load() } }) { playable in
-            TVPlayerScreen(item: playable)
+        .fullScreenCover(item: $playbackItem, onDismiss: { Task { await load() } }) { request in
+            TVPlayerScreen(item: request.item, fromStart: request.fromStart)
         }
         .task(id: itemId) { await load() }
     }
 
     // MARK: - Head
 
-    private func head(for item: Item, width: CGFloat) -> some View {
-        let logoURL = appEnvironment.client?.imageURL(id: item.logoImageId, tag: item.logoImageTag, width: 480)
-        let lane = logoLaneHeight(aspect: logoAspect) * 1.5
-        let solidLeft: CGFloat = logoURL != nil ? lane + 34 : 170
-        return BiasCutBackdrop(url: detailArtURL(width: 1440), width: width, solidLeft: solidLeft) {
-            Group {
-                if let logoURL {
-                    CachedImage(url: logoURL, contentMode: .fit, onLoad: { image in
-                        let aspect = Double(image.size.width / max(image.size.height, 1))
-                        if logoAspect != aspect {
-                            withAnimation(.spring) { logoAspect = aspect }
-                        }
-                    }) { Color.clear }
-                        .frame(width: min(CGFloat(logoAspect ?? 3) * lane, width * 0.4), height: lane)
-                } else {
-                    Text(item.title)
-                        .font(.displayMedium)
-                        .foregroundStyle(Color.ink)
-                        .lineLimit(2)
+    /// The band fraction per kind: movies and episodes take the working
+    /// column; shows keep the band short so the episode strip is fully on
+    /// screen at rest.
+    private func bandFraction(for item: Item) -> CGFloat {
+        item.kind == "show" ? TVLayout.showBand : TVLayout.movieBand
+    }
+
+    private func head(for item: Item, size: CGSize) -> some View {
+        let band = size.height * bandFraction(for: item)
+        return SelvedgeBackdrop(
+            url: detailArtURL(width: 1440),
+            width: size.width,
+            height: band,
+            seam: TVLayout.detailSeam
+        ) {
+            column(for: item, width: size.width)
+                .padding(.leading, TVLayout.sideMargin)
+                .padding(.top, TVLayout.verticalMargin + 14)
+        }
+        // The full-width section keeps the controls reachable: an up-press
+        // from a card right of the column would otherwise find no candidate
+        // (focus search wants horizontal overlap) and go nowhere.
+        .focusSection()
+    }
+
+    /// The identity column on the seam's open ground: everything that used to
+    /// stack under the head, one press closer to the couch.
+    private func column(for item: Item, width: CGFloat) -> some View {
+        let columnWidth = width * TVLayout.detailSeam - TVLayout.sideMargin - 44
+        return VStack(alignment: .leading, spacing: 0) {
+            if item.kind == "episode" {
+                if let eyebrow = episodeEyebrow(item) {
+                    RowLabel(text: eyebrow, color: accent.tint)
                 }
+                Text(item.title)
+                    .font(.headlineMedium)
+                    .foregroundStyle(Color.ink)
+                    .lineLimit(2)
+                    .padding(.top, 10)
+            } else {
+                identity(for: item, columnWidth: columnWidth)
             }
-            .padding(.horizontal, TVLayout.sideMargin)
-            .padding(.bottom, 18)
+            metaLine(for: item)
+                .padding(.top, 18)
+            if item.kind != "episode", let tagline = item.tagline, !tagline.isEmpty {
+                Text(tagline)
+                    .font(.bodyMedium)
+                    .italic()
+                    .foregroundStyle(Color.ink.opacity(0.92))
+                    .lineLimit(2)
+                    .padding(.top, 10)
+            }
+            if item.isPlayable {
+                playControls(for: item)
+                    .padding(.top, 24)
+                if let reason = blockReason(for: item) {
+                    statusLine(icon: "tv.slash", text: reason)
+                }
+                if let fraction = progressFraction(item) {
+                    ThreadProgress(fraction: fraction, color: accent.tint)
+                        .frame(width: columnWidth * 0.6)
+                        .padding(.top, 18)
+                }
+                badgeStrip(for: item)
+                    .padding(.top, 20)
+                if let chapters = item.media?.chapters, chapters.count > 1 {
+                    Text("\(chapters.count) chapters")
+                        .font(.labelSmall)
+                        .foregroundStyle(Color.muted)
+                        .padding(.top, 12)
+                }
+            } else if item.kind == "show" {
+                showControls(for: item)
+                    .padding(.top, 24)
+            }
+            if let overview = item.overview, !overview.isEmpty {
+                Text(overview)
+                    .font(.bodySmall)
+                    .foregroundStyle(Color.muted)
+                    .lineSpacing(4)
+                    .lineLimit(overviewLines(for: item))
+                    .padding(.top, 22)
+            }
+        }
+        .frame(width: columnWidth, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private func identity(for item: Item, columnWidth: CGFloat) -> some View {
+        let logoURL = appEnvironment.client?.imageURL(id: item.logoImageId, tag: item.logoImageTag, width: 480)
+        if let logoURL {
+            let lane = logoLaneHeight(aspect: logoAspect) * 1.5
+            CachedImage(url: logoURL, contentMode: .fit, onLoad: { image in
+                let aspect = Double(image.size.width / max(image.size.height, 1))
+                if logoAspect != aspect {
+                    withAnimation(.spring) { logoAspect = aspect }
+                }
+            }) { Color.clear }
+                .frame(width: min(CGFloat(logoAspect ?? 3) * lane, columnWidth), height: lane)
+        } else {
+            Text(item.title)
+                .font(.displaySmall)
+                .foregroundStyle(Color.ink)
+                .lineLimit(3)
         }
     }
 
-    // MARK: - Body
+    /// "BREAKING BAD · S1 E1" — the series voice above the episode's name.
+    private func episodeEyebrow(_ item: Item) -> String? {
+        var parts: [String] = []
+        if let series = item.seriesTitle ?? seriesName, !series.isEmpty { parts.append(series) }
+        if let label = episodeLabel(item) { parts.append(label) }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    /// The column budgets prose per altitude: a movie gets four lines, a show
+    /// three (its screen belongs to the episodes), an episode six (this page
+    /// is the one place the text matters most).
+    private func overviewLines(for item: Item) -> Int {
+        switch item.kind {
+        case "show": 3
+        case "episode": 6
+        default: 4
+        }
+    }
+
+    // MARK: - Below the band
 
     @ViewBuilder
-    private func detailBody(for item: Item) -> some View {
-        if item.kind == "episode", let label = episodeLabel(item) {
-            RowLabel(text: label, color: accent.tint)
-                .padding(.top, 20)
-            Text(item.title)
-                .font(.headlineMedium)
-                .foregroundStyle(Color.ink)
-                .padding(.top, 4)
-        }
-        metaLine(for: item)
-            .padding(.top, item.kind == "episode" ? 12 : 20)
-        if let tagline = item.tagline, !tagline.isEmpty {
-            Text(tagline)
-                .font(.bodyMedium)
-                .italic()
-                .foregroundStyle(Color.ink)
-                .padding(.top, 8)
-        }
-        if item.isPlayable {
-            playControls(for: item)
-                .padding(.top, 22)
-            if let reason = blockReason(for: item) {
-                statusLine(icon: "tv.slash", text: reason)
-            }
-            if let fraction = progressFraction(item) {
-                ThreadProgress(fraction: fraction, color: accent.tint)
-                    .frame(maxWidth: 540)
-                    .padding(.top, 16)
-            }
-            badgeStrip(for: item)
-                .padding(.top, 22)
-        } else if item.kind == "show" {
-            showControls(for: item)
-                .padding(.top, 22)
-        }
-        if let overview = item.overview, !overview.isEmpty {
-            Text(overview)
-                .font(.bodyLarge)
-                .foregroundStyle(Color.ink.opacity(0.92))
-                .lineLimit(item.kind == "show" ? 4 : nil)
-                .frame(maxWidth: 1100, alignment: .leading)
-                .padding(.top, 26)
-        }
-        if let chapters = item.media?.chapters, chapters.count > 1 {
-            Text("\(chapters.count) chapters")
-                .font(.labelSmall)
-                .foregroundStyle(Color.muted)
-                .padding(.top, 14)
-        }
+    private func belowBand(for item: Item) -> some View {
         if item.kind == "show" {
             seasonSection()
         }
-        creditsSection(for: item)
+        if item.kind == "episode" {
+            upNextSection(for: item)
+        }
+        billingStrip(for: item)
     }
 
     private func metaLine(for item: Item) -> some View {
@@ -185,9 +252,11 @@ struct TVDetailView: View {
 
     private func playControls(for item: Item) -> some View {
         let blocked = blockReason(for: item) != nil
+        // Natural width: the pills may run a little past the column toward
+        // the seam's open ground rather than wrap their labels.
         return HStack(spacing: 16) {
             Button {
-                playbackItem = item
+                playbackItem = PlaybackRequest(item: item)
             } label: {
                 Label(playLabel(for: item), systemImage: "play.fill")
             }
@@ -196,8 +265,30 @@ struct TVDetailView: View {
             .disabled(blocked)
             .opacity(blocked ? 0.45 : 1)
 
-            watchedToggle(for: item)
+            // From the couch, "start over" deserves its own button; the iPad
+            // reaches the same result through scrubbing.
+            if (item.progress?.resumePositionMs ?? 0) > 0 {
+                Button {
+                    playbackItem = PlaybackRequest(item: item, fromStart: true)
+                } label: {
+                    Label("Restart", systemImage: "arrow.counterclockwise")
+                }
+                .buttonStyle(TVPillButtonStyle())
+                .disabled(blocked)
+                .opacity(blocked ? 0.45 : 1)
+            }
+
+            // Default focus must land on a focusable control: aiming it at
+            // the disabled Play of a gated title leaves the toggle wearing a
+            // stale focus appearance.
+            if blocked {
+                watchedToggle(for: item)
+                    .focused($playFocused)
+            } else {
+                watchedToggle(for: item)
+            }
         }
+        .fixedSize(horizontal: true, vertical: false)
     }
 
     private func playLabel(for item: Item) -> String {
@@ -211,7 +302,7 @@ struct TVDetailView: View {
         let next = episodes.first { !($0.progress?.played ?? false) }
         return HStack(spacing: 16) {
             Button {
-                if let next { playbackItem = next }
+                if let next { playbackItem = PlaybackRequest(item: next) }
             } label: {
                 Label(showPlayLabel(next: next), systemImage: "play.fill")
             }
@@ -219,7 +310,14 @@ struct TVDetailView: View {
             .focused($playFocused)
             .disabled(next == nil)
 
-            watchedToggle(for: item)
+            // Same trap as the gated Play: default focus needs a focusable
+            // target when everything is watched and Play is disabled.
+            if next == nil {
+                watchedToggle(for: item)
+                    .focused($playFocused)
+            } else {
+                watchedToggle(for: item)
+            }
         }
     }
 
@@ -437,52 +535,57 @@ struct TVDetailView: View {
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
+    // MARK: - Up Next
+
+    /// The rest of the season under an episode's head, so the next episode
+    /// never requires backing out to the show. Reuses the show page's cells.
+    @ViewBuilder
+    private func upNextSection(for item: Item) -> some View {
+        if !upNext.isEmpty {
+            let label = (item.seasonNumber ?? 0) > 0 ? "Season \(item.seasonNumber ?? 0) · Up Next" : "Up Next"
+            VStack(alignment: .leading, spacing: 0) {
+                RowLabel(text: label, color: accent.tint)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    LazyHStack(alignment: .top, spacing: TVLayout.cardSpacing) {
+                        ForEach(upNext) { episode in
+                            episodeCell(episode)
+                        }
+                    }
+                    .padding(.vertical, 30)
+                }
+                .scrollClipDisabled()
+                .focusSection()
+            }
+            .padding(.top, 26)
+        }
+    }
+
     // MARK: - Credits
 
-    /// Loom stores no people photos, so the credits are billing, not
-    /// headshots: frosted ink cards that let the gauze show through.
+    /// Loom stores no people photos, so the cast is billing, not headshots: a
+    /// strip of content-sized type cards, the way a one-sheet credits its
+    /// cast. The director leads with the accent role label.
     @ViewBuilder
-    private func creditsSection(for item: Item) -> some View {
+    private func billingStrip(for item: Item) -> some View {
         if let credits = item.credits, !credits.isEmpty {
             let ordered = credits.sorted { a, b in
                 (a.role == "Director" ? 0 : 1) < (b.role == "Director" ? 0 : 1)
             }
-            let visible = castExpanded ? ordered : Array(ordered.prefix(6))
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 0) {
                 RowLabel(text: "Cast")
-                    .padding(.bottom, 4)
-                ForEach(visible, id: \.self) { credit in
-                    creditCard(credit)
-                }
-                if !castExpanded && ordered.count > 6 {
-                    Button {
-                        castExpanded = true
-                    } label: {
-                        Text("All \(ordered.count) cast members")
-                            .font(.titleSmall)
-                            .foregroundStyle(Color.muted)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    LazyHStack(alignment: .top, spacing: 48) {
+                        ForEach(ordered, id: \.self) { credit in
+                            TVBillingCard(credit: credit, accent: accent.tint)
+                        }
                     }
-                    .buttonStyle(TVPillButtonStyle())
+                    .padding(.vertical, 24)
                 }
+                .scrollClipDisabled()
+                .focusSection()
             }
-            .frame(maxWidth: 900, alignment: .leading)
-            .padding(.top, 36)
+            .padding(.top, 30)
         }
-    }
-
-    /// Selecting a card searches the person, matching the Android bill.
-    private func creditCard(_ credit: Credit) -> some View {
-        NavigationLink(value: TVPersonSearch(name: credit.name)) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(credit.name)
-                    .font(.system(size: TypeScale.titleSmall + 2))
-                    .foregroundStyle(Color.ink)
-                Text(credit.character ?? credit.role)
-                    .font(.system(size: TypeScale.labelSmall, weight: .medium))
-                    .foregroundStyle(Color.muted)
-            }
-        }
-        .buttonStyle(TVRowButtonStyle())
     }
 
     // MARK: - Data
@@ -514,6 +617,19 @@ struct TVDetailView: View {
                 }
             } else if loaded.kind == "season" {
                 episodes = try await client.children(of: itemId).items
+            } else if loaded.kind == "episode", let seasonId = loaded.parentId {
+                // The Up Next strip: siblings after this episode, in order.
+                let number = loaded.episodeNumber ?? 0
+                let siblings = (try? await client.children(of: seasonId).items) ?? []
+                upNext = siblings.filter { $0.kind == "episode" && ($0.episodeNumber ?? 0) > number }
+                // The item endpoint omits series_title; the eyebrow needs the
+                // show's name, two parent hops away (episode → season → show).
+                if loaded.seriesTitle == nil,
+                   let season = try? await client.item(id: seasonId),
+                   let showId = season.parentId,
+                   let show = try? await client.item(id: showId) {
+                    seriesName = show.title
+                }
             }
             await resolveThreads()
         } catch {

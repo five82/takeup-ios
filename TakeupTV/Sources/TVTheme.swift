@@ -13,6 +13,17 @@ enum TVLayout {
     static let thumbWidth: CGFloat = 400
     static let cardSpacing: CGFloat = 36
     static let rowSpacing: CGFloat = 44
+
+    // The selvedge system: every backdrop head is a band across the top of
+    // the screen, split by the 4° seam — art right, identity column left.
+    // Home wears the tightest column (five short elements); detail takes a
+    // working column; shows keep the band short so the episode strip is
+    // fully on screen at rest.
+    static let heroSeam: CGFloat = 0.36
+    static let heroBand: CGFloat = 0.574
+    static let detailSeam: CGFloat = 0.46
+    static let movieBand: CGFloat = 0.62
+    static let showBand: CGFloat = 0.52
 }
 
 /// Focus-aware capsule for pills and chips: the fill brightens to the given
@@ -43,6 +54,7 @@ struct TVPillButtonStyle: ButtonStyle {
         var body: some View {
             configuration.label
                 .font(.labelLarge)
+                .lineLimit(1)
                 .foregroundStyle(focused ? onFill : idleText)
                 .padding(.horizontal, 32)
                 .frame(minHeight: 64)
@@ -251,6 +263,47 @@ struct TVThumbCell: View {
         }
         .frame(width: width, alignment: .leading)
         .animation(.easeOut(duration: 0.18), value: focused)
+    }
+}
+
+/// One cast entry as billing, not a headshot: Loom stores no people photos,
+/// so the strip commits to type — the character in the tracked label voice
+/// over the actor's name, sized to its own content. Focus inks the name and
+/// slides the selvedge stripe underneath; select pushes the person search.
+struct TVBillingCard: View {
+    let credit: Credit
+    var accent: Color = .ember
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        NavigationLink(value: TVPersonSearch(name: credit.name)) {
+            VStack(alignment: .leading, spacing: 6) {
+                RowLabel(
+                    text: credit.character ?? credit.role,
+                    color: credit.role == "Director" ? accent : .faint,
+                    font: .labelSmall,
+                    tracking: TypeScale.labelSmall * 0.18
+                )
+                .lineLimit(1)
+                Text(credit.name)
+                    .font(.titleSmall)
+                    .foregroundStyle(focused ? Color.ink : Color.muted)
+                    .lineLimit(1)
+                // Always in layout so focus never reflows the row.
+                Selvedge(height: 4)
+                    .frame(width: 110)
+                    .opacity(focused ? 1 : 0)
+            }
+            // Long character strings ("The Bride / Beatrix Kiddo (Black
+            // Mamba) / Mommy") would blow the card up to a banner; the card
+            // truncates instead, and the person page has the full billing.
+            .frame(maxWidth: 400, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(TVHeroButtonStyle())
+        .focused($focused)
+        .scaleEffect(focused ? 1.06 : 1, anchor: .leading)
+        .animation(.easeOut(duration: 0.15), value: focused)
     }
 }
 

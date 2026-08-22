@@ -52,6 +52,47 @@ func biasCutHeight(width: CGFloat, artAspect: CGFloat, solidLeft: CGFloat) -> CG
     width / artAspect + solidLeft - biasCutOverlap
 }
 
+/// The selvedge seam: the blade turned vertical for the TV's 16:9 canvas,
+/// where the horizontal cut would trim the axis the screen is short on. The
+/// art's left edge leans 4° — entering from the left at the top, running out
+/// to the right at the bottom — like the self-finished edge of a bolt.
+struct SelvedgeSeamShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        let run = rect.height * tan(biasCutDegrees * .pi / 180)
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.minX + run, y: rect.maxY))
+        path.closeSubpath()
+        return path
+    }
+}
+
+/// Backdrop art trimmed by the selvedge seam: art full-bleed to the top and
+/// right edges, open ground on the left where the identity column sits. The
+/// column never needs a scrim — text sits on the screen's own background,
+/// which runs seamlessly up to the seam. `seam` is the fraction of the width
+/// where the art begins at the top edge.
+struct SelvedgeBackdrop<Content: View>: View {
+    var url: URL?
+    var width: CGFloat
+    var height: CGFloat
+    var seam: CGFloat
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            CachedImage(url: url, contentMode: .fill) { Color.surface1 }
+                .frame(width: width * (1 - seam), height: height)
+                .clipShape(SelvedgeSeamShape())
+                .frame(width: width, alignment: .topTrailing)
+            content()
+        }
+        .frame(width: width, height: height, alignment: .topLeading)
+    }
+}
+
 /// Backdrop art trimmed by the bias cut, with open ground at the bottom-left
 /// where the logo or title sits. The cut climbs away from there, so clearance
 /// over left-aligned content only grows to the right. Nothing is painted

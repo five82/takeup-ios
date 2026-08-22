@@ -77,6 +77,18 @@ struct BiasCutTests {
         let height = biasCutHeight(width: 900, artAspect: 2.1, solidLeft: 100)
         #expect(abs(height - (900 / 2.1 + 100 - 16)) < 0.001)
     }
+
+    @Test func selvedgeSeamLeansTheBladeAngleRightward() {
+        // The TV seam: left at the top, right at the bottom, same 4° blade.
+        let rect = CGRect(x: 0, y: 0, width: 1000, height: 620)
+        let path = SelvedgeSeamShape().path(in: rect)
+        let run = rect.height * tan(biasCutDegrees * .pi / 180)
+        // Just inside the top-left corner is art; the bottom-left corner is
+        // open ground until the seam's run has passed.
+        #expect(path.contains(CGPoint(x: 1, y: 1)))
+        #expect(!path.contains(CGPoint(x: run - 1, y: rect.height - 1)))
+        #expect(path.contains(CGPoint(x: run + 2, y: rect.height - 1)))
+    }
 }
 
 struct WovenAccentTests {

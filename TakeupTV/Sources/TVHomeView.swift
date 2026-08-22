@@ -23,7 +23,7 @@ struct TVHomeView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
                         if let hero = featuredPick {
-                            heroView(hero, width: proxy.size.width)
+                            heroView(hero, size: proxy.size)
                         }
                         rows(width: proxy.size.width)
                     }
@@ -82,11 +82,8 @@ struct TVHomeView: View {
             ?? client.imageURL(id: hero.thumbImageId, tag: hero.thumbImageTag, width: 1440)
     }
 
-    private func heroView(_ hero: Item, width: CGFloat) -> some View {
-        let logoURL = appEnvironment.client?.imageURL(id: hero.logoImageId, tag: hero.logoImageTag, width: 480)
-        let lane = logoLaneHeight(aspect: heroLogoAspect) * 1.5
-        let solidLeft: CGFloat = logoURL != nil ? lane + 110 : 230
-        // Only the identity block is focusable, not the full-width backdrop:
+    private func heroView(_ hero: Item, size: CGSize) -> some View {
+        // Only the identity column is focusable, not the full-width backdrop:
         // a down-press moves to the card nearest the focused frame, and the
         // full-width hero handed focus to whichever card sat under the
         // screen's center instead of the row's first card. Select still opens
@@ -95,29 +92,32 @@ struct TVHomeView: View {
         // target. (A Button rather than a NavigationLink because a link
         // styled as the hero would fight the focus engine's card treatment;
         // it pushes through the item-binding destination below.)
-        return BiasCutBackdrop(url: heroBackdropURL, width: width, solidLeft: solidLeft) {
+        SelvedgeBackdrop(
+            url: heroBackdropURL,
+            width: size.width,
+            height: size.height * TVLayout.heroBand,
+            seam: TVLayout.heroSeam
+        ) {
             Button {
                 heroPush = hero
             } label: {
-                VStack(alignment: .leading, spacing: 0) {
-                    heroIdentity(hero, logoURL: logoURL, lane: lane, width: width)
-                    heroMeta(hero, width: width)
-                }
-                .contentShape(Rectangle())
+                heroColumn(hero, width: size.width)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(TVHeroButtonStyle())
             .focused($heroFocused)
-            .padding(.horizontal, TVLayout.sideMargin)
-            .padding(.bottom, 26)
+            .padding(.leading, TVLayout.sideMargin)
+            // alignment .leading centers the column on the band's height.
+            .frame(height: size.height * TVLayout.heroBand, alignment: .leading)
         }
         // The full-width section keeps the hero reachable: an up-press from a
-        // card right of the identity block would otherwise find no candidate
+        // card right of the identity column would otherwise find no candidate
         // (focus search wants horizontal overlap) and go nowhere.
         .focusSection()
-        // The hero breathes rather than lifts — a bias-cut backdrop on a card
-        // platter would break the seamless ground the cut depends on. The
-        // ember glow bleeds out along the bias-cut edge, so a still frame
-        // shows the hero holds focus.
+        // The hero breathes rather than lifts — a selvedge backdrop on a card
+        // platter would break the seamless ground the seam depends on. The
+        // ember glow bleeds out along the seam, so a still frame shows the
+        // hero holds focus.
         .scaleEffect(heroFocused ? 1.02 : 1, anchor: .bottom)
         .brightness(heroFocused ? 0.06 : 0)
         .shadow(color: Color.ember.opacity(heroFocused ? 0.45 : 0), radius: 30, y: 12)
@@ -127,39 +127,64 @@ struct TVHomeView: View {
     @State private var heroPush: Item?
     @FocusState private var heroFocused: Bool
 
+    /// The invitation, not a detail screen: five short elements — pick label,
+    /// logo, the selvedge stripe, year · genres, tagline — plus the thread
+    /// when the pick is resumable. The overview never renders at home
+    /// altitude; a select answers anything past "what is this?".
+    private func heroColumn(_ hero: Item, width: CGFloat) -> some View {
+        let columnWidth = width * TVLayout.heroSeam - TVLayout.sideMargin - 44
+        let logoURL = appEnvironment.client?.imageURL(id: hero.logoImageId, tag: hero.logoImageTag, width: 480)
+        let hour = Calendar.current.component(.hour, from: Date())
+        var meta: [String] = []
+        if let year = hero.year, year > 0 { meta.append(String(year)) }
+        for genre in (hero.genres ?? []).prefix(2) { meta.append(genre.name) }
+        return VStack(alignment: .leading, spacing: 0) {
+            RowLabel(text: featuredPickLabel(hour: hour), color: .violet)
+            heroIdentity(hero, logoURL: logoURL, columnWidth: columnWidth)
+                .padding(.top, 20)
+            Selvedge(height: 5)
+                .frame(width: 170)
+                .padding(.top, 22)
+            if !meta.isEmpty {
+                Text(meta.joined(separator: " · "))
+                    .font(.bodyMedium)
+                    .foregroundStyle(Color.ink.opacity(0.85))
+                    .padding(.top, 20)
+            }
+            if let tagline = hero.tagline, !tagline.isEmpty {
+                Text(tagline)
+                    .font(.bodyMedium)
+                    .italic()
+                    .foregroundStyle(Color.ink.opacity(0.92))
+                    .padding(.top, 14)
+            }
+            if let fraction = progressFraction(hero) {
+                ThreadProgress(fraction: fraction, thread: RGB(hexValue: 0xFF4D55))
+                    .frame(width: columnWidth * 0.7)
+                    .padding(.top, 26)
+            }
+        }
+        .frame(width: columnWidth, alignment: .leading)
+    }
+
     @ViewBuilder
-    private func heroIdentity(_ hero: Item, logoURL: URL?, lane: CGFloat, width: CGFloat) -> some View {
+    private func heroIdentity(_ hero: Item, logoURL: URL?, columnWidth: CGFloat) -> some View {
         if let logoURL {
+            // The lane runs larger than detail's: the logo is the column's
+            // anchor, sized to the column rather than to the iPad's head.
+            let lane = logoLaneHeight(aspect: heroLogoAspect) * 1.9
             CachedImage(url: logoURL, contentMode: .fit, onLoad: { image in
                 let aspect = Double(image.size.width / max(image.size.height, 1))
                 if heroLogoAspect != aspect {
                     withAnimation(.spring) { heroLogoAspect = aspect }
                 }
             }) { Color.clear }
-                .frame(width: min(CGFloat(heroLogoAspect ?? 3) * lane, width * 0.4), height: lane)
+                .frame(width: min(CGFloat(heroLogoAspect ?? 3) * lane, columnWidth), height: lane)
         } else {
             Text(hero.title)
-                .font(.displayMedium)
+                .font(.displaySmall)
                 .foregroundStyle(Color.ink)
-                .lineLimit(2)
-        }
-    }
-
-    private func heroMeta(_ hero: Item, width: CGFloat) -> some View {
-        let hour = Calendar.current.component(.hour, from: Date())
-        var parts = [featuredPickLabel(hour: hour)]
-        if let year = hero.year, year > 0 { parts.append(String(year)) }
-        if let genre = hero.genres?.first?.name { parts.append(genre) }
-        return VStack(alignment: .leading, spacing: 0) {
-            Text(parts.joined(separator: " · "))
-                .font(.bodyMedium)
-                .foregroundStyle(Color.ink.opacity(0.85))
-                .padding(.top, 14)
-                .padding(.bottom, 12)
-            if let fraction = progressFraction(hero) {
-                ThreadProgress(fraction: fraction, thread: RGB(hexValue: 0xFF4D55))
-                    .frame(width: width * 0.35)
-            }
+                .lineLimit(3)
         }
     }
 
