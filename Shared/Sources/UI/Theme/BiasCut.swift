@@ -53,9 +53,10 @@ struct LogoBox: View {
     /// (iPad: the bias-cut head sizes its open ground to the logo, and a
     /// reserved box strands empty space above thin wordmarks).
     var hugs = false
-    /// Reports the fitted height as it settles, for layout that must track
-    /// it — the iPad head's open ground. Called inside the same animation
-    /// wrap as the size change so both move together.
+    /// Reports the fitted height whenever it changes, for layout that must
+    /// track it — the iPad head's open ground. Fires on the decoded aspect
+    /// settling and on the box's width changing (rotation re-fits a
+    /// width-constrained wordmark), so the tracked value never goes stale.
     var onHeight: ((CGFloat) -> Void)? = nil
 
     @State private var aspect: Double = 3
@@ -66,14 +67,14 @@ struct LogoBox: View {
         CachedImage(url: url, contentMode: .fit, onLoad: { image in
             let decoded = Double(image.size.width / max(image.size.height, 1))
             if aspect != decoded {
-                withAnimation(.spring) {
-                    aspect = decoded
-                    onHeight?(min(CGFloat(decoded) * height, width) / CGFloat(decoded))
-                }
+                withAnimation(.spring) { aspect = decoded }
             }
         }) { Color.clear }
             .frame(width: fittedWidth, height: fittedHeight)
             .frame(height: hugs ? fittedHeight : height, alignment: .bottomLeading)
+            .onChange(of: fittedHeight) { _, newValue in
+                withAnimation(.spring) { onHeight?(newValue) }
+            }
     }
 }
 
