@@ -121,9 +121,7 @@ struct TVDetailView: View {
         let columnWidth = width * TVLayout.detailSeam - TVLayout.sideMargin - 44
         return VStack(alignment: .leading, spacing: 0) {
             if item.kind == "episode" {
-                if let eyebrow = episodeEyebrow(item) {
-                    RowLabel(text: eyebrow, color: accent.tint)
-                }
+                episodeIdentity(for: item, columnWidth: columnWidth)
                 Text(item.title)
                     .font(.displaySmall)
                     .foregroundStyle(Color.ink)
@@ -202,6 +200,31 @@ struct TVDetailView: View {
                 .font(.displayMedium)
                 .foregroundStyle(Color.ink)
                 .lineLimit(2)
+        }
+    }
+
+    /// The series voice above the episode's name: the show's logo when the
+    /// episode inherits one, at a leaner lane than a show page's identity —
+    /// the episode title owns this screen. The "S1 E1" eyebrow sits between
+    /// them, iPad-style; without a logo the eyebrow speaks the series name.
+    @ViewBuilder
+    private func episodeIdentity(for item: Item, columnWidth: CGFloat) -> some View {
+        let logoURL = appEnvironment.client?.imageURL(id: item.logoImageId, tag: item.logoImageTag, width: 480)
+        if let logoURL {
+            let lane = logoLaneHeight(aspect: logoAspect) * 1.2
+            CachedImage(url: logoURL, contentMode: .fit, onLoad: { image in
+                let aspect = Double(image.size.width / max(image.size.height, 1))
+                if logoAspect != aspect {
+                    withAnimation(.spring) { logoAspect = aspect }
+                }
+            }) { Color.clear }
+                .frame(width: min(CGFloat(logoAspect ?? 3) * lane, columnWidth), height: lane)
+            if let label = episodeLabel(item) {
+                RowLabel(text: label, color: accent.tint)
+                    .padding(.top, 16)
+            }
+        } else if let eyebrow = episodeEyebrow(item) {
+            RowLabel(text: eyebrow, color: accent.tint)
         }
     }
 
