@@ -12,7 +12,11 @@ final class ImageStore {
     private var inFlight: [URL: Task<UIImage?, Never>] = [:]
 
     private init() {
-        cache.countLimit = 600
+        // Capped by memory footprint, not count: a decoded 1440-wide backdrop
+        // weighs ~5MB against a 240 bucket's ~130KB, so a count limit either
+        // starves posters or lets backdrops balloon memory (the Apple TV
+        // jetsams long before 600 backdrops).
+        cache.totalCostLimit = 256 * 1024 * 1024
     }
 
     func cached(for url: URL) -> UIImage? {
@@ -22,16 +26,23 @@ final class ImageStore {
     func image(for url: URL) async -> UIImage? {
         if let hit = cache.object(forKey: url as NSURL) { return hit }
         if let running = inFlight[url] { return await running.value }
-        let task = Task<UIImage?, Never> {
+        // Detached so the decode happens off the main thread: UIImage(data:)
+        // defers the actual JPEG decode to first render, which would land on
+        // the main thread mid-scroll exactly as new cells appear.
+        // byPreparingForDisplay forces it here instead.
+        let task = Task.detached(priority: .userInitiated) { () -> UIImage? in
             guard let (data, _) = try? await URLSession.shared.data(from: url),
                   let image = UIImage(data: data)
             else { return nil }
-            return image
+            return await image.byPreparingForDisplay() ?? image
         }
         inFlight[url] = task
         let image = await task.value
         inFlight[url] = nil
-        if let image { cache.setObject(image, forKey: url as NSURL) }
+        if let image {
+            let cost = Int(image.size.width * image.size.height * 4 * image.scale * image.scale)
+            cache.setObject(image, forKey: url as NSURL, cost: cost)
+        }
         return image
     }
 }
