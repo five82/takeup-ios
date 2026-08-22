@@ -51,6 +51,8 @@ struct ItemDetailView: View {
     /// The first content frame lands already dressed: rendering waits for the
     /// woven threads or a 300ms grace, whichever comes first.
     @State private var dressed = false
+    /// The head logo's fitted height, driving the open ground below the cut.
+    @State private var logoHeight: CGFloat = logoBoxHeight
     @State private var castExpanded = false
     @State private var artworkPick: ArtworkPick?
     @State private var removalEntry: DownloadEntry?
@@ -174,11 +176,13 @@ struct ItemDetailView: View {
         let logoURL = offline
             ? downloads.artworkURL(for: item.id, kind: .logo)
             : appEnvironment.client?.imageURL(id: item.logoImageId, tag: item.logoImageTag, width: 480)
-        let solidLeft: CGFloat = logoURL != nil ? logoBoxHeight + 22 : 116
+        let solidLeft: CGFloat = logoURL != nil ? logoHeight + 22 : 116
         return BiasCutBackdrop(url: detailArtURL(width: 960), width: width, solidLeft: solidLeft) {
             Group {
                 if let logoURL {
-                    LogoBox(url: logoURL, width: width * 0.5, height: logoBoxHeight)
+                    LogoBox(url: logoURL, width: width * 0.5, height: logoBoxHeight, hugs: true) { height in
+                        logoHeight = height
+                    }
                 } else {
                     Text(item.title)
                         .font(.displayMedium)

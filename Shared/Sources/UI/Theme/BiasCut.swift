@@ -48,19 +48,32 @@ struct LogoBox: View {
     var url: URL?
     var width: CGFloat
     var height: CGFloat
+    /// Reserve the full box height (TV: the band centers its column, so the
+    /// constant reservation reads as composition) or hug the fitted logo
+    /// (iPad: the bias-cut head sizes its open ground to the logo, and a
+    /// reserved box strands empty space above thin wordmarks).
+    var hugs = false
+    /// Reports the fitted height as it settles, for layout that must track
+    /// it — the iPad head's open ground. Called inside the same animation
+    /// wrap as the size change so both move together.
+    var onHeight: ((CGFloat) -> Void)? = nil
 
     @State private var aspect: Double = 3
 
     var body: some View {
         let fittedWidth = min(CGFloat(aspect) * height, width)
+        let fittedHeight = fittedWidth / CGFloat(aspect)
         CachedImage(url: url, contentMode: .fit, onLoad: { image in
             let decoded = Double(image.size.width / max(image.size.height, 1))
             if aspect != decoded {
-                withAnimation(.spring) { aspect = decoded }
+                withAnimation(.spring) {
+                    aspect = decoded
+                    onHeight?(min(CGFloat(decoded) * height, width) / CGFloat(decoded))
+                }
             }
         }) { Color.clear }
-            .frame(width: fittedWidth, height: fittedWidth / CGFloat(aspect))
-            .frame(height: height, alignment: .bottomLeading)
+            .frame(width: fittedWidth, height: fittedHeight)
+            .frame(height: hugs ? fittedHeight : height, alignment: .bottomLeading)
     }
 }
 

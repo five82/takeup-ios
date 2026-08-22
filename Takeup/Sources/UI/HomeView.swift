@@ -20,6 +20,8 @@ struct HomeView: View {
     @State private var loadError: String?
     @State private var offline = false
     @State private var playbackItem: Item?
+    /// The hero logo's fitted height, driving the open ground below the cut.
+    @State private var heroLogoHeight: CGFloat = logoBoxHeight
 
     var body: some View {
         GeometryReader { proxy in
@@ -132,7 +134,7 @@ struct HomeView: View {
 
     private func heroView(_ hero: Item, width: CGFloat) -> some View {
         let logoURL = heroLogoURL(hero)
-        let solidLeft: CGFloat = logoURL != nil ? logoBoxHeight + 76 : 160
+        let solidLeft: CGFloat = logoURL != nil ? heroLogoHeight + 76 : 160
         // The whole hero is one tap target, matching the Android app.
         return NavigationLink(value: hero) {
             BiasCutBackdrop(url: heroBackdropURL, width: width, solidLeft: solidLeft) {
@@ -154,7 +156,9 @@ struct HomeView: View {
     @ViewBuilder
     private func heroIdentity(_ hero: Item, logoURL: URL?, width: CGFloat) -> some View {
         if let logoURL {
-            LogoBox(url: logoURL, width: width * 0.5, height: logoBoxHeight)
+            LogoBox(url: logoURL, width: width * 0.5, height: logoBoxHeight, hugs: true) { height in
+                heroLogoHeight = height
+            }
         } else {
             Text(hero.title)
                 .font(.displayMedium)
