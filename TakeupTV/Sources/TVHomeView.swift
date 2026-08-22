@@ -6,6 +6,7 @@ import SwiftUI
 /// all focus-driven.
 struct TVHomeView: View {
     @Environment(AppEnvironment.self) private var appEnvironment
+    @Environment(\.scenePhase) private var scenePhase
     @State private var featuredPick: Item?
     @State private var continueWatching: [Item] = []
     @State private var nextUp: [Item] = []
@@ -59,6 +60,14 @@ struct TVHomeView: View {
             steerRowFocus(from: old, to: new)
         }
         .task { await load() }
+        // Waking the box catches home up: artwork tags, progress, new items.
+        // The app can sit resident for days, and stale rows meant blank
+        // posters after an artwork change. Skipped at launch (`loaded` is
+        // still false) — the initial .task load is already running.
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active, loaded else { return }
+            Task { await load() }
+        }
     }
 
     private var isEmpty: Bool {
