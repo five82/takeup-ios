@@ -35,6 +35,13 @@ schemes:
       config: Debug
       # Same MoltenVK HDR passthrough issue as the iPad scheme.
       metalAPIValidation: false
+    test:
+      config: Debug
+      # The only "test" here is the headless remote driver; run it through
+      # scripts/tv-driver.sh, not a bare `xcodebuild test`, or it will sit
+      # waiting for commands.
+      targets:
+        - TakeupTVDriver
 
 targets:
   Takeup:
@@ -127,6 +134,20 @@ targets:
           - Lato-MediumItalic.ttf
           - Lato-Bold.ttf
           - Lato-BoldItalic.ttf
+  TakeupTVDriver:
+    type: bundle.ui-testing
+    platform: tvOS
+    sources:
+      - TakeupTVDriver
+    dependencies:
+      - target: TakeupTV
+    settings:
+      base:
+        DEVELOPMENT_TEAM: G539654RSK
+        CODE_SIGN_STYLE: Automatic
+        TARGETED_DEVICE_FAMILY: "3"
+        SWIFT_VERSION: "5.0"
+        GENERATE_INFOPLIST_FILE: true
   TakeupTests:
     type: bundle.unit-test
     platform: iOS

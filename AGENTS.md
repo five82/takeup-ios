@@ -142,14 +142,16 @@ xcrun simctl launch <udid> xyz.five82.takeup.tv -server <address> -tab home
 
 Launch arguments carried over from the iPad app: `-server`, `-tab <home|movies|tv|shorts|collections|genres|search|settings>`, `-detail <itemId>`, `-autoplay <itemId>`, `-popover <chapters|audio|cc>` (opens the console panel), `-sub <lang>` (turns on the first matching SubRip track), and `-autochain`. There is no `-download`, `-artwork`, `-person`, or `-landscape`.
 
-Driving the headless tvOS simulator: `simctl` has no remote input, and idb's HID key events no longer arrive (observed 2026-08: CoreSimulator 1155.4 hands the keyboard service to `dtuhidd` for the lifetime of the boot; idb prints a "Keyboard HID is suppressed" warning and the event is silently dropped — verify with a screenshot rather than trusting the send). Prefer launch arguments for anything they can reach (`-sub` exists precisely so cue rendering needs no remote input). When mid-session presses are unavoidable, attach the stable Xcode's Simulator.app to the booted device and send keystrokes with AppleScript — arrows move focus, Return is select, Escape is menu. The keystrokes go to the frontmost window, so activate Simulator first, don't type while it runs, and confirm each press landed via screenshot:
+Driving the headless tvOS simulator: `simctl` has no remote input, and idb's HID key events no longer arrive (observed 2026-08: CoreSimulator 1155.4 hands the keyboard service to `dtuhidd` for the lifetime of the boot; idb prints a "Keyboard HID is suppressed" warning and the event is silently dropped). Prefer launch arguments for anything they can reach (`-sub` exists precisely so cue rendering needs no remote input). For mid-session presses, use `scripts/tv-driver.sh`: it runs the `TakeupTVDriver` XCUIRemote "test", which launches the app and forwards presses read from `/tmp/takeup-tv-driver/cmd` — injection goes through testmanagerd, so it needs no window focus, steals no keyboard, and exercises the real focus engine. (Do not fall back to AppleScript keystrokes into Simulator.app; they type into whatever window is frontmost and drop most presses.)
 
 ```bash
-open -a /Applications/Xcode.app/Contents/Developer/Applications/Simulator.app \
-  --args -CurrentDeviceUDID <udid>
-osascript -e 'tell application "Simulator" to activate' -e 'delay 1' \
-  -e 'tell application "System Events" to key code 125'   # 123/124/125/126 = left/right/down/up, 36 = select, 53 = menu
+./scripts/tv-driver.sh start -tab home          # builds the driver if needed, launches the app with these args
+./scripts/tv-driver.sh send right down down     # presses: up down left right select menu playpause
+xcrun simctl io <udid> screenshot /tmp/check.png
+./scripts/tv-driver.sh stop                     # ends the run (it self-terminates after 30 min regardless)
 ```
+
+The driver owns the app's lifecycle while it runs — `start` relaunches the app, and `stop` (or the driver's exit) terminates it. `xcodebuild test` on the TakeupTV scheme runs only this driver, so always go through the script, which scopes it with `-only-testing` and waits for readiness.
 
 Known tvOS quirks (2026-08, tvOS 27.0):
 
