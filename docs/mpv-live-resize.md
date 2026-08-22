@@ -32,6 +32,10 @@ The app side (`MPVPlayerController`) keeps the layer's `frame` and
 `drawableSize` in sync with the view in `viewDidLayoutSubviews`; the patched
 context notices and resizes within a frame.
 
+The framework also carries tvOS slices for the TakeupTV app. The patch
+compiles into them but is inert there — an Apple TV's screen never changes
+size mid-playback.
+
 ## How it's wired in
 
 - `Vendor/MPVKit/Package.swift` — a vendored copy of MPVKit 0.41.0's package
@@ -53,8 +57,9 @@ brew install meson ninja wget
 xcodegen generate
 ```
 
-FFmpeg and mpv compile from source (~30-60 minutes); all other dependencies
-download prebuilt. When bumping the MPVKit version: update `MPVKIT_TAG` in
+The script builds all four slices — iOS, tvOS, and both simulators — into
+the one xcframework. FFmpeg and mpv compile from source (~30-60 minutes);
+all other dependencies download prebuilt. When bumping the MPVKit version: update `MPVKIT_TAG` in
 `scripts/build-libmpv.sh`, regenerate `Vendor/MPVKit/Package.swift` from the
 new tag's manifest (keep the local `Libmpv` binaryTarget), re-check that the
 patch still applies, and rebuild. If upstream ever fixes issue #3, drop the
