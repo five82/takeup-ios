@@ -28,6 +28,6 @@ enum PlaybackGate {
         guard codec?.lowercased() == "av1", !av1HardwareDecode else { return nil }
         // Anything beyond 1080p is past what software decode sustains.
         guard (width ?? 0) > 1920 || (height ?? 0) > 1080 else { return nil }
-        return "4K AV1 needs an Apple TV with an AV1 hardware decoder; this one decodes it in software and can't keep up."
+        return "This Apple TV can not play 4K AV1 video smoothly."
     }
 }
