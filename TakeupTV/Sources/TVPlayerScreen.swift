@@ -170,6 +170,10 @@ private struct TVPlayerSessionView: View {
                 case "cc": panel = model.subtitleTracks.isEmpty ? nil : .subtitles
                 default: break
                 }
+                // The chrome may have auto-hidden during the sleep, and panels
+                // only render inside it -- re-surface it or the panel opens
+                // invisibly.
+                if panel != nil { controlsVisible = true }
             }
             await loadNextEpisode()
             await loadThreads()

@@ -72,6 +72,22 @@ final class PlayerModel {
         } else {
             selectedSubtitleId = selectedSub?.id
         }
+        applyLaunchSubtitle()
+    }
+
+    /// CLI-driven check (see AGENTS.md): `-sub <lang>` turns on the first
+    /// SubRip track matching the language (or the first at all for a
+    /// non-matching value) as soon as the track list arrives, so a headless
+    /// simulator can verify cue rendering with no remote input.
+    private var launchSubtitleApplied = false
+    private func applyLaunchSubtitle() {
+        guard !launchSubtitleApplied, !subtitleTracks.isEmpty else { return }
+        let arguments = ProcessInfo.processInfo.arguments
+        guard let flag = arguments.firstIndex(of: "-sub"), flag + 1 < arguments.count else { return }
+        launchSubtitleApplied = true
+        let lang = arguments[flag + 1]
+        let track = subtitleTracks.first { $0.lang == lang } ?? subtitleTracks[0]
+        selectSubtitle(track.id)
     }
 
     func selectAudio(_ id: Int) {
