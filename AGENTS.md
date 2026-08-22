@@ -159,9 +159,9 @@ Known tvOS quirks (2026-08, tvOS 27.0):
 - `CAMetalLayer.wantsExtendedDynamicRangeContent` does not exist on tvOS (the override in `MetalLayer.swift` is `#if os(iOS)`); the Apple TV negotiates HDR at the system level. HDR10-on-HEVC passthrough is verified working on the box (2026-08); HDR10-on-AV1 waits for the AV1-capable Apple TV.
 - The sidebar (`.sidebarAdaptable` TabView) starts expanded with focus in it; send a right-arrow keystroke (via the Simulator.app/AppleScript flow above) before screenshots that need the content unobscured.
 
-**4K AV1 is gated, not hidden.** The A15 Apple TV has no AV1 hardware decoder and dav1d software decode cannot sustain 4K, so `PlaybackGate` (in `Shared/`, unit-tested) refuses playback of AV1 above 1080p when `VTIsHardwareDecodeSupported(AV1)` is false: the detail screen disables Play with the reason, and the player surfaces the same reason for direct entries. 1080p AV1 plays (software decode holds up on the A15). The check is a live capability query, so the gate lifts itself on the next-generation Apple TV with no code change. Titles stay visible in the library either way.
+**4K AV1 is gated, not hidden.** The house Apple TV has no AV1 hardware decoder and dav1d software decode cannot sustain 4K, so `PlaybackGate` (in `Shared/`, unit-tested) refuses playback of AV1 above 1080p when `VTIsHardwareDecodeSupported(AV1)` is false: the detail screen disables Play with the reason, and the player surfaces the same reason for direct entries. 1080p AV1 plays (software decode holds up, verified on the A12). The check is a live capability query, so the gate lifts itself on the next-generation Apple TV with no code change. Titles stay visible in the library either way.
 
-The physical Apple TV must be paired once before `devicectl` can install to it (Xcode ▸ Devices, or Settings ▸ Remotes and Devices ▸ Remote App and Devices on the box); the free-account 7-day install expiry applies to it like the iPad.
+The physical Apple TV ("Living Room Apple TV") is an Apple TV 4K 2nd generation (A12). It must be paired once before `devicectl` can install to it (Xcode ▸ Devices, or Settings ▸ Remotes and Devices ▸ Remote App and Devices on the box); the free-account 7-day install expiry applies to it like the iPad.
 
 ## Physical iPad
 

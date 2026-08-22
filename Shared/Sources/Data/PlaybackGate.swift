@@ -1,11 +1,12 @@
 import CoreMedia
 import VideoToolbox
 
-/// Playback capability gate for the TV app. The Apple TV 4K's A15 has no AV1
-/// hardware decoder; 1080p AV1 holds up in dav1d software decode, but 4K does
-/// not, so 4K AV1 titles refuse to play rather than stutter. The check is a
-/// live VideoToolbox query, not a device-model list, so the block lifts itself
-/// on AV1-capable hardware (and never fires on the M4 iPad).
+/// Playback capability gate for the TV app. The house Apple TV 4K (2nd gen,
+/// A12) has no AV1 hardware decoder; 1080p AV1 holds up in dav1d software
+/// decode, but 4K does not, so 4K AV1 titles refuse to play rather than
+/// stutter. The check is a live VideoToolbox query, not a device-model list,
+/// so the block lifts itself on AV1-capable hardware (and never fires on the
+/// M4 iPad).
 enum PlaybackGate {
     static var hasAV1HardwareDecode: Bool {
         VTIsHardwareDecodeSupported(kCMVideoCodecType_AV1)
