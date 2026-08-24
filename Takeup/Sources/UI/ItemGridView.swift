@@ -68,10 +68,16 @@ struct ItemGridView: View {
                 LoadingState()
             }
         }
-        // Keyed on the verdict rather than on reach itself: walking back onto
-        // the LAN refills the grid from Loom on its own, while a probe merely
-        // settling home-versus-remote leaves a load in flight alone.
-        .task(id: network.reach == .offline) { await reload() }
+        // A view task restarts after a detail push. Do not treat that lifecycle
+        // restart as a reason to discard the paged grid: doing so briefly leaves
+        // only page one, clamps the retained scroll offset to its end, and sends
+        // the user from (for example) H back to C. Reload only for the initial
+        // load or when the online/offline content must actually change.
+        .task(id: network.reach == .offline) {
+            let shouldBeOffline = network.reach == .offline
+            guard items.isEmpty || offline != shouldBeOffline else { return }
+            await reload()
+        }
     }
 
     /// The grid proper, shared by the online pages and the offline shelf.
