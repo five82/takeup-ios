@@ -169,7 +169,7 @@ Known tvOS quirks (2026-08, tvOS 27.0):
 
 **4K AV1 is gated, not hidden.** The house Apple TV has no AV1 hardware decoder and dav1d software decode cannot sustain 4K, so `PlaybackGate` (in `Shared/`, unit-tested) refuses playback of AV1 above 1080p when `VTIsHardwareDecodeSupported(AV1)` is false: the detail screen disables Play with the reason, and the player surfaces the same reason for direct entries. 1080p AV1 plays (software decode holds up, verified on the A12). The check is a live capability query, so the gate lifts itself on the next-generation Apple TV with no code change. Titles stay visible in the library either way.
 
-The physical Apple TV ("Living Room Apple TV") is an Apple TV 4K 2nd generation (A12). It must be paired once before `devicectl` can install to it (Xcode ▸ Devices, or Settings ▸ Remotes and Devices ▸ Remote App and Devices on the box); the free-account 7-day install expiry applies to it like the iPad.
+The physical Apple TV ("Living Room Apple TV") is an Apple TV 4K 2nd generation (A12). It must be paired once before `devicectl` can install to it (Xcode ▸ Devices, or Settings ▸ Remotes and Devices ▸ Remote App and Devices on the box).
 
 ## Physical iPad
 
@@ -186,7 +186,7 @@ xcrun devicectl device install app --device <udid> \
 xcrun devicectl device process launch --terminate-existing --device <udid> xyz.five82.takeup
 ```
 
-The free developer account means device installs expire after 7 days; reinstalling refreshes them.
+The team is a paid developer account, so device installs are signed with year-long provisioning profiles and do not expire between sessions.
 
 ## Loom
 
