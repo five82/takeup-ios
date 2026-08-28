@@ -9,6 +9,7 @@ func makeItem(
     season: Int? = nil,
     episode: Int? = nil,
     title: String = "Item",
+    sortTitle: String? = nil,
     genres: [Genre]? = nil,
     voteAverage: Double? = nil,
     durationMs: Int64? = nil,
@@ -18,7 +19,7 @@ func makeItem(
 ) -> Item {
     Item(
         id: id, libraryId: nil, parentId: parentId, kind: kind, title: title,
-        year: nil, seasonNumber: season, episodeNumber: episode,
+        sortTitle: sortTitle, year: nil, seasonNumber: season, episodeNumber: episode,
         episodeEndNumber: nil, tmdbId: nil, overview: nil, tagline: nil,
         releaseDate: nil, genres: genres, credits: nil, voteAverage: voteAverage,
         contentRating: nil, status: nil, totalSeasons: nil,

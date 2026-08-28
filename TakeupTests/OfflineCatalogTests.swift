@@ -13,11 +13,12 @@ private func catalogItem(
     season: Int? = nil,
     episode: Int? = nil,
     title: String = "Item",
+    sortTitle: String? = nil,
     progress: Takeup.Progress? = nil
 ) -> Item {
     Item(
         id: id, libraryId: libraryId, parentId: parentId, kind: kind, title: title,
-        year: nil, seasonNumber: season, episodeNumber: episode,
+        sortTitle: sortTitle, year: nil, seasonNumber: season, episodeNumber: episode,
         episodeEndNumber: nil, tmdbId: nil, overview: nil, tagline: nil,
         releaseDate: nil, genres: nil, credits: nil, voteAverage: nil,
         contentRating: nil, status: nil, totalSeasons: nil,
@@ -183,6 +184,28 @@ struct OfflineCatalogTests {
         // Both episodes collapse to the one show; the movie stands for itself.
         #expect(catalog.recent().map(\.id) == [1, 5])
         #expect(catalog.all().map(\.id).sorted() == [1, 5])
+    }
+
+    @Test func offlineListingsFileALeadingArticleUnderTheNextWord() {
+        // Loom sends the sort key only where it differs from the title, and its
+        // own A-Z listings order by it. Offline order has to match, or a title
+        // moves the moment the device goes online again.
+        let gangs = catalogItem(id: 1, libraryId: 7, kind: "movie", title: "Gangs of New York")
+        let departed = catalogItem(
+            id: 2, libraryId: 7, kind: "movie", title: "The Departed", sortTitle: "Departed"
+        )
+        let bronx = catalogItem(
+            id: 3, libraryId: 7, kind: "movie", title: "A Bronx Tale", sortTitle: "Bronx Tale"
+        )
+        let cape = catalogItem(id: 4, libraryId: 7, kind: "movie", title: "Cape Fear")
+
+        let catalog = OfflineCatalog(entries: [gangs, departed, bronx, cape].map { entry($0) })
+
+        #expect(catalog.library("movies").map(\.id) == [3, 4, 2, 1])
+        #expect(catalog.all().map(\.id) == [3, 4, 2, 1])
+        // Every title here contains an "a", so search returns all four and the
+        // assertion is purely about their order.
+        #expect(catalog.search("a").map(\.id) == [3, 4, 2, 1])
     }
 
     // MARK: - Search

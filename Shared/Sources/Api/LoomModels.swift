@@ -10,6 +10,9 @@ struct Item: Codable, Identifiable, Hashable {
     let parentId: Int64?
     let kind: String
     let title: String
+    /// The title with one leading English article dropped, sent only where that
+    /// changes the title. See `sortKey`.
+    let sortTitle: String?
     let year: Int?
     let seasonNumber: Int?
     let episodeNumber: Int?
@@ -46,6 +49,23 @@ struct Item: Codable, Identifiable, Hashable {
     let seasonTitle: String?
 
     var isPlayable: Bool { kind == "movie" || kind == "episode" }
+
+    /// What Loom's own A-Z listings sort by, so The Departed files under D.
+    /// Only lists this app orders itself need it; anything drawn in the order
+    /// the server sent it is already sorted this way.
+    var sortKey: String { sortTitle ?? title }
+}
+
+/// Loom's A-Z order, reproduced for the lists this app sorts itself: one
+/// leading English article skipped, compared without case, ties broken by the
+/// title. A downloaded library that ordered titles any other way would
+/// reshuffle itself the moment the device came back online.
+func alphabetically(_ lhs: Item, _ rhs: Item) -> Bool {
+    switch lhs.sortKey.localizedCaseInsensitiveCompare(rhs.sortKey) {
+    case .orderedAscending: return true
+    case .orderedDescending: return false
+    case .orderedSame: return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
+    }
 }
 
 // Loom (Go) marshals empty lists as `"items": null`, so `items` must decode

@@ -80,14 +80,14 @@ struct OfflineCatalog {
     /// What a library tab holds offline, in the same A-Z order Loom serves.
     func library(_ kind: String) -> [Item] {
         if kind == "tv" {
-            return (shows + looseEpisodes).sorted { $0.title < $1.title }
+            return (shows + looseEpisodes).sorted(by: alphabetically)
         }
         // An item does not carry its library's kind, so the cached id-to-kind
         // map fills that in. Anything downloaded before the map knew its
         // library lands under Movies rather than vanishing from every tab.
         return ready
             .filter { $0.kind == "movie" && (libraryKinds[$0.libraryId ?? 0] ?? "movies") == kind }
-            .sorted { $0.title < $1.title }
+            .sorted(by: alphabetically)
     }
 
     /// Answers for any download, even one still mid-transfer, so a detail
@@ -150,7 +150,7 @@ struct OfflineCatalog {
     }
 
     /// Everything on the device in one A-Z grid, for a tab with no libraries to split.
-    func all() -> [Item] { recent().sorted { $0.title < $1.title } }
+    func all() -> [Item] { recent().sorted(by: alphabetically) }
 
     /// Offline search. Loom matches on word starts across titles and credited
     /// people; with no server there is only what the snapshots carry, so this
@@ -168,7 +168,7 @@ struct OfflineCatalog {
                 item.title.localizedCaseInsensitiveContains(trimmed) ||
                     (show(forEpisode: item.id)?.title.localizedCaseInsensitiveContains(trimmed) ?? false)
             }
-            .sorted { $0.title < $1.title }
+            .sorted(by: alphabetically)
     }
 
     // MARK: - Private helpers
@@ -221,6 +221,7 @@ struct OfflineCatalog {
             parentId: item.parentId,
             kind: item.kind,
             title: item.title,
+            sortTitle: item.sortTitle,
             year: item.year,
             seasonNumber: item.seasonNumber,
             episodeNumber: item.episodeNumber,

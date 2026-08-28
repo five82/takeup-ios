@@ -15,7 +15,7 @@ struct FormatTests {
         var item = makeItem(id: 3, season: 1, episode: 4)
         item = Item(
             id: item.id, libraryId: nil, parentId: nil, kind: item.kind, title: item.title,
-            year: nil, seasonNumber: 1, episodeNumber: 4, episodeEndNumber: 5,
+            sortTitle: nil, year: nil, seasonNumber: 1, episodeNumber: 4, episodeEndNumber: 5,
             tmdbId: nil, overview: nil, tagline: nil, releaseDate: nil, genres: nil,
             credits: nil, voteAverage: nil, contentRating: nil, status: nil,
             totalSeasons: nil, posterImageId: nil, posterImageTag: nil,
