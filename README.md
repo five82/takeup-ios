@@ -12,6 +12,16 @@ Takeup is a native SwiftUI client for [Loom](https://github.com/five82/loom), a 
 
 It is a sibling of [Takeup for Android](https://github.com/five82/takeup). Takeup and Loom are designed together for a single user on a trusted local network.
 
+## Expectations
+
+This repository is shared as is. Takeup is a personal tool. It is open source in
+the spirit of sharing, but it is not actively maintained as a general-purpose
+product.
+
+- Personal-first: behavior may change as the application evolves.
+- Best-effort only: questions and issues may receive a slow response or none.
+- The project began as and remains an experiment. Expect rough edges.
+
 ## Features
 
 - Home discovery with Continue Watching, Next Up, and recently added/played titles
