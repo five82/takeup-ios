@@ -182,6 +182,9 @@ private struct TVPlayerSessionView: View {
             await loadNextEpisode()
             await loadThreads()
         }
+        // A paused or finished video lets the display sleep; mpv's pause flag
+        // is the intent to play, so buffering still holds the screen awake.
+        .keepingDisplayAwake(!model.paused && !model.ended)
         .task { await progressLoop() }
         .onDisappear {
             Task { await reportProgress() }
