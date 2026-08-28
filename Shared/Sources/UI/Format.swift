@@ -63,6 +63,15 @@ func resolutionBadge(_ resolution: String?) -> String? {
     }
 }
 
+/// A Loom RFC 3339 timestamp, with or without fractional seconds.
+func parseTimestamp(_ iso: String) -> Date? {
+    let fractional = ISO8601DateFormatter()
+    fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    let plain = ISO8601DateFormatter()
+    plain.formatOptions = [.withInternetDateTime]
+    return fractional.date(from: iso) ?? plain.date(from: iso)
+}
+
 /// "Today at 1:04 PM", "Yesterday at 11:32 PM", "Aug 18 at 9:05 AM", or
 /// "Dec 30, 2025 at 9:05 AM" for a Loom RFC 3339 timestamp in local time.
 func formatTimestamp(
@@ -71,11 +80,7 @@ func formatTimestamp(
     locale: Locale = .current,
     now: Date = .now
 ) -> String {
-    let fractional = ISO8601DateFormatter()
-    fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-    let plain = ISO8601DateFormatter()
-    plain.formatOptions = [.withInternetDateTime]
-    guard let moment = fractional.date(from: iso) ?? plain.date(from: iso) else { return iso }
+    guard let moment = parseTimestamp(iso) else { return iso }
 
     var calendar = Calendar(identifier: .gregorian)
     calendar.timeZone = timeZone
@@ -106,4 +111,10 @@ func formatTimestamp(
         day = date.string(from: moment)
     }
     return "\(day) at \(time.string(from: moment))"
+}
+
+/// The hero's label follows the device clock rather than the server's
+/// timezone, so it matches what the viewer sees out the window.
+func featuredPickLabel(hour: Int) -> String {
+    (6..<18).contains(hour) ? "Today's Pick" : "Tonight's Pick"
 }

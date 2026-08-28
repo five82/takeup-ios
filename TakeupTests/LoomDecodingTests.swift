@@ -12,6 +12,23 @@ struct LoomDecodingTests {
         #expect(page.limit == 50)
     }
 
+    @Test func homeDecodesHeroRowsAndShelves() throws {
+        let json = Data(#"{"featured":{"id":42,"kind":"movie","title":"A Movie"},"continue_watching":[],"next_up":[{"id":7,"kind":"episode","title":"Pilot"}],"recently_added":null,"shelves":[{"key":"col-star-wars","title":"Star Wars","items":[{"id":1,"kind":"movie","title":"Star Wars"}]}],"expires_at":"2025-08-12T18:00:00Z"}"#.utf8)
+        let home = try loomDecoder().decode(Home.self, from: json)
+        #expect(home.expiresAt == Date(timeIntervalSince1970: 1_755_021_600))
+        #expect(home.featured?.id == 42)
+        #expect(home.nextUp.map(\.id) == [7])
+        #expect(home.recentlyAdded.isEmpty)
+        #expect(home.shelves.map(\.id) == ["col-star-wars"])
+        #expect(home.shelves[0].items[0].title == "Star Wars")
+
+        let empty = Data(#"{"featured":null,"continue_watching":[],"next_up":[],"recently_added":[],"shelves":[]}"#.utf8)
+        let none = try loomDecoder().decode(Home.self, from: empty)
+        #expect(none.featured == nil)
+        #expect(none.shelves.isEmpty)
+        #expect(none.expiresAt == nil)
+    }
+
     @Test func searchResponseDecodesNullItemsAsEmpty() throws {
         let json = Data(#"{"items":null,"fuzzy":true}"#.utf8)
         let response = try loomDecoder().decode(SearchResponse.self, from: json)

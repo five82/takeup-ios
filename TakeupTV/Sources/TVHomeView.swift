@@ -11,7 +11,8 @@ struct TVHomeView: View {
     @State private var continueWatching: [Item] = []
     @State private var nextUp: [Item] = []
     @State private var recentlyAdded: [Item] = []
-    @State private var discovery: [DiscoveryRow] = []
+    @State private var shelves: [Shelf] = []
+    @State private var expiresAt: Date?
     @State private var loaded = false
     @State private var loadError: String?
     @State private var playbackItem: Item?
@@ -68,11 +69,23 @@ struct TVHomeView: View {
             guard phase == .active, loaded else { return }
             Task { await load() }
         }
+        // Loom says when its rows go stale - the next pick change or shelf
+        // rotation - so home reloads then rather than guessing at the server's
+        // schedule from this clock. The floor keeps a skewed clock from
+        // spinning; a timer only runs while home is on screen, which is the
+        // only time a stale screen can be seen.
+        .task(id: expiresAt) {
+            guard let expiresAt else { return }
+            let delay = max(expiresAt.timeIntervalSinceNow, 60)
+            try? await Task.sleep(for: .seconds(delay))
+            guard !Task.isCancelled else { return }
+            await load()
+        }
     }
 
     private var isEmpty: Bool {
         featuredPick == nil && continueWatching.isEmpty && nextUp.isEmpty
-            && recentlyAdded.isEmpty && discovery.isEmpty
+            && recentlyAdded.isEmpty && shelves.isEmpty
     }
 
     // MARK: - Hero
@@ -209,7 +222,7 @@ struct TVHomeView: View {
             "Next Up": (nextUp, TVLayout.thumbWidth),
             "Recently Added": (recentlyAdded, TVLayout.posterWidth),
         ]
-        for shelf in discovery { table[shelf.title] = (shelf.items, TVLayout.posterWidth) }
+        for shelf in shelves { table[shelf.title] = (shelf.items, TVLayout.posterWidth) }
         return table
     }
 
@@ -271,7 +284,7 @@ struct TVHomeView: View {
         if !recentlyAdded.isEmpty {
             posterRow(title: "Recently Added", items: recentlyAdded, labelColor: .muted)
         }
-        ForEach(discovery) { shelf in
+        ForEach(shelves) { shelf in
             posterRow(title: shelf.title, items: shelf.items, labelColor: .violet)
         }
     }
@@ -348,27 +361,14 @@ struct TVHomeView: View {
             return
         }
         loadError = nil
-        async let featuredResult = client.featuredPick()
-        async let continueWatchingPage = client.continueWatching()
-        async let nextUpPage = client.nextUp()
-        async let recentlyAddedPage = client.recentlyAdded()
-        async let moviesResult = client.allItems(library: "movies")
-        async let showsResult = client.allItems(library: "tv")
-        async let collectionsResult = client.collections()
-        async let recentlyPlayedPage = client.recentlyPlayed()
         do {
-            featuredPick = try await featuredResult.item
-            continueWatching = try await continueWatchingPage.items
-            nextUp = try await nextUpPage.items
-            recentlyAdded = try await recentlyAddedPage.items
-            let epochDay = Int64(Date().timeIntervalSince1970 / 86_400)
-            discovery = discoveryRows(
-                movies: try await moviesResult,
-                shows: try await showsResult,
-                collections: try await collectionsResult,
-                recentlyPlayed: try await recentlyPlayedPage.items,
-                epochDay: epochDay
-            )
+            let home = try await client.home()
+            featuredPick = home.featured
+            continueWatching = home.continueWatching
+            nextUp = home.nextUp
+            recentlyAdded = home.recentlyAdded
+            shelves = home.shelves
+            expiresAt = home.expiresAt
         } catch {
             if isEmpty { loadError = error.localizedDescription }
         }

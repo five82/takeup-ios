@@ -66,19 +66,6 @@ struct LoomClient {
         return try await request("items", query: query)
     }
 
-    /// The full catalog of a library, paged until a short page marks the end.
-    /// Discovery shelves shuffle the whole library, so they need all of it.
-    func allItems(library: String) async throws -> [Item] {
-        var all: [Item] = []
-        let pageSize = 200
-        while true {
-            let page = try await items(library: library, limit: pageSize, offset: all.count)
-            all.append(contentsOf: page.items)
-            if page.items.count < pageSize { break }
-        }
-        return all
-    }
-
     func genres() async throws -> [Genre] {
         let wrapped: Wrapped<Genre> = try await request("genres")
         return wrapped.items
@@ -110,24 +97,9 @@ struct LoomClient {
         try await request("items/\(id)/playback")
     }
 
-    func continueWatching(limit: Int = 20) async throws -> ItemsPage {
-        try await request("continue-watching", query: [URLQueryItem(name: "limit", value: String(limit))])
-    }
-
-    func nextUp(limit: Int = 20) async throws -> ItemsPage {
-        try await request("next-up", query: [URLQueryItem(name: "limit", value: String(limit))])
-    }
-
-    func recentlyAdded(limit: Int = 20) async throws -> ItemsPage {
-        try await request("recently-added", query: [URLQueryItem(name: "limit", value: String(limit))])
-    }
-
-    func recentlyPlayed(limit: Int = 20) async throws -> ItemsPage {
-        try await request("recently-played", query: [URLQueryItem(name: "limit", value: String(limit))])
-    }
-
-    func featuredPick() async throws -> FeaturedPick {
-        try await request("featured-pick")
+    /// The home screen: hero, playback rows, and the day's discovery shelves.
+    func home() async throws -> Home {
+        try await request("home")
     }
 
     func search(query: String, limit: Int = 50) async throws -> SearchResponse {

@@ -94,10 +94,35 @@ struct SearchResponse: Codable {
     }
 }
 
-struct FeaturedPick: Codable {
-    let item: Item
-    let startsAt: String?
-    let endsAt: String?
+/// The whole home screen in one response; Loom builds the rows and shelves.
+struct Home: Codable {
+    let featured: Item?
+    let continueWatching: [Item]
+    let nextUp: [Item]
+    let recentlyAdded: [Item]
+    let shelves: [Shelf]
+    /// When Loom's rows go stale - the next pick change or shelf rotation -
+    /// so home reloads then rather than guessing at the server's schedule.
+    let expiresAt: Date?
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        featured = try container.decodeIfPresent(Item.self, forKey: .featured)
+        expiresAt = try container.decodeIfPresent(String.self, forKey: .expiresAt).flatMap(parseTimestamp)
+        continueWatching = try container.decodeIfPresent([Item].self, forKey: .continueWatching) ?? []
+        nextUp = try container.decodeIfPresent([Item].self, forKey: .nextUp) ?? []
+        recentlyAdded = try container.decodeIfPresent([Item].self, forKey: .recentlyAdded) ?? []
+        shelves = try container.decodeIfPresent([Shelf].self, forKey: .shelves) ?? []
+    }
+}
+
+/// One rotating discovery shelf. The key is stable for a given shelf kind.
+struct Shelf: Codable, Identifiable, Equatable {
+    let key: String
+    let title: String
+    let items: [Item]
+
+    var id: String { key }
 }
 
 struct Genre: Codable, Identifiable, Hashable {

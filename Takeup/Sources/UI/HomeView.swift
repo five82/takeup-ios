@@ -11,11 +11,13 @@ struct HomeView: View {
     @Environment(AppEnvironment.self) private var appEnvironment
     @Environment(DownloadManager.self) private var downloads
     @Environment(NetworkPolicy.self) private var network
+    @Environment(\.scenePhase) private var scenePhase
     @State private var featuredPick: Item?
     @State private var continueWatching: [Item] = []
     @State private var nextUp: [Item] = []
     @State private var recentlyAdded: [Item] = []
-    @State private var discovery: [DiscoveryRow] = []
+    @State private var shelves: [Shelf] = []
+    @State private var expiresAt: Date?
     @State private var loaded = false
     @State private var loadError: String?
     @State private var offline = false
@@ -83,12 +85,31 @@ struct HomeView: View {
         // the LAN recovers on its own, while home-to-remote (or the first
         // probe answering at all) leaves a load in flight alone.
         .task(id: network.reach == .offline) { await load() }
+        // Coming back to the foreground catches home up, as on the TV app.
+        // Skipped at launch (`loaded` is still false) - the initial .task
+        // load is already running.
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active, loaded else { return }
+            Task { await load() }
+        }
+        // Loom says when its rows go stale - the next pick change or shelf
+        // rotation - so home reloads then rather than guessing at the server's
+        // schedule from this clock. The floor keeps a skewed clock from
+        // spinning; a timer only runs while home is on screen, which is the
+        // only time a stale screen can be seen.
+        .task(id: expiresAt) {
+            guard let expiresAt else { return }
+            let delay = max(expiresAt.timeIntervalSinceNow, 60)
+            try? await Task.sleep(for: .seconds(delay))
+            guard !Task.isCancelled else { return }
+            await load()
+        }
         .refreshable { await load(force: true) }
     }
 
     private var isEmpty: Bool {
         featuredPick == nil && continueWatching.isEmpty && nextUp.isEmpty
-            && recentlyAdded.isEmpty && discovery.isEmpty
+            && recentlyAdded.isEmpty && shelves.isEmpty
     }
 
     // MARK: - Hero
@@ -217,7 +238,7 @@ struct HomeView: View {
         if !recentlyAdded.isEmpty {
             posterRow(title: "Recently Added", items: recentlyAdded, width: width, labelColor: .muted)
         }
-        ForEach(discovery) { shelf in
+        ForEach(shelves) { shelf in
             posterRow(title: shelf.title, items: shelf.items, width: width, labelColor: .violet)
         }
     }
@@ -380,27 +401,14 @@ struct HomeView: View {
             return
         }
         loadError = nil
-        async let featuredResult = client.featuredPick()
-        async let continueWatchingPage = client.continueWatching()
-        async let nextUpPage = client.nextUp()
-        async let recentlyAddedPage = client.recentlyAdded()
-        async let moviesResult = client.allItems(library: "movies")
-        async let showsResult = client.allItems(library: "tv")
-        async let collectionsResult = client.collections()
-        async let recentlyPlayedPage = client.recentlyPlayed()
         do {
-            featuredPick = try await featuredResult.item
-            continueWatching = try await continueWatchingPage.items
-            nextUp = try await nextUpPage.items
-            recentlyAdded = try await recentlyAddedPage.items
-            let epochDay = Int64(Date().timeIntervalSince1970 / 86_400)
-            discovery = discoveryRows(
-                movies: try await moviesResult,
-                shows: try await showsResult,
-                collections: try await collectionsResult,
-                recentlyPlayed: try await recentlyPlayedPage.items,
-                epochDay: epochDay
-            )
+            let home = try await client.home()
+            featuredPick = home.featured
+            continueWatching = home.continueWatching
+            nextUp = home.nextUp
+            recentlyAdded = home.recentlyAdded
+            shelves = home.shelves
+            expiresAt = home.expiresAt
             offline = false
             network.markReachable()
             // The server answered, so anything queued while offline can land.
