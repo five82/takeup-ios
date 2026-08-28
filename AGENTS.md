@@ -90,6 +90,14 @@ Add focused tests alongside new pure logic; UI and playback behavior are still v
 
 The `iPad27` simulator (iPad Pro 11-inch M4, iOS beta runtime) is the default target for everything it can run: UI, layout, navigation, API integration against the live Loom server, and playback smoke checks.
 
+It is a hand-made `simctl` device rather than one Xcode ships, so a runtime update can take it with it (observed missing 2026-08). Recreate it by name - every command here addresses it as `iPad27`, and the stock iOS 27.0 iPads are unnamed M5 models (same 834x1210 geometry, so idb coordinates would carry over, but nothing else here would find them):
+
+```bash
+xcrun simctl create iPad27 \
+  com.apple.CoreSimulator.SimDeviceType.iPad-Pro-11-inch-M4-8GB \
+  com.apple.CoreSimulator.SimRuntime.iOS-27-0
+```
+
 Xcode's beta removed the standalone Simulator app (its replacement is DeviceHub), so CLI-driven simulators run headless. Drive them with `simctl` and verify with screenshots:
 
 ```bash
