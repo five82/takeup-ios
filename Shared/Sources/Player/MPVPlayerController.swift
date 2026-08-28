@@ -46,6 +46,19 @@ final class MPVPlayerController: UIViewController {
 
     var playURL: URL?
     var startSeconds: Double = 0
+    /// Night-mode dialogue boost, mirroring the Android app's DialogueBoost
+    /// effect: one full-range compressor (threshold -32 dB, 3:1, 20/250 ms,
+    /// 6 dB knee, +8 dB makeup) into a limiter with a -1.5 dB ceiling
+    /// (1/60 ms), so quiet dialogue lifts without loud passages clipping.
+    /// Read at init; toggle live with setDialogueBoost.
+    var dialogueBoost = false
+    /// FFmpeg wants the levels linear: 0.0251 = -32 dB, 2.512 = +8 dB,
+    /// 0.841 = -1.5 dB. `level=false` keeps the limiter's ceiling at -1.5 dB
+    /// instead of auto-scaling the output back up to full scale. Neither
+    /// filter is in MPVKit's stock FFmpeg build - scripts/build-libmpv.sh
+    /// enables them in the vendored Libavfilter.
+    static let dialogueBoostFilter = "lavfi=[acompressor=threshold=0.0251:ratio=3:attack=20:release=250:knee=6:makeup=2.512,"
+        + "alimiter=limit=0.841:attack=1:release=60:level=false]"
     /// Called on the main thread whenever an observed property changes.
     var onStateChange: ((ObservedState) -> Void)?
     /// Called on the main thread once the file loads, with the full track list.
@@ -128,6 +141,9 @@ final class MPVPlayerController: UIViewController {
         // whatever visibility says) -- libass just never draws them, because
         // SubtitleOverlay does. See SubtitleCue.
         checkError(mpv_set_option_string(mpv, "sub-visibility", "no"))
+        if dialogueBoost {
+            checkError(mpv_set_option_string(mpv, "af", Self.dialogueBoostFilter))
+        }
 
         checkError(mpv_initialize(mpv))
 
@@ -185,6 +201,14 @@ final class MPVPlayerController: UIViewController {
     func setCropToFill(_ cropped: Bool) {
         guard mpv != nil else { return }
         mpv_set_property_string(mpv, "panscan", cropped ? "1.0" : "0.0")
+    }
+
+    func setDialogueBoost(_ enabled: Bool) {
+        dialogueBoost = enabled
+        guard mpv != nil else { return }
+        // An empty chain clears the filter; mpv rebuilds the audio chain in
+        // place, so playback carries on without a gap.
+        checkError(mpv_set_property_string(mpv, "af", enabled ? Self.dialogueBoostFilter : ""), context: "af")
     }
 
     func setAudioTrack(_ id: Int) {

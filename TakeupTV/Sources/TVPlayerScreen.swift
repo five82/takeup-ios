@@ -358,6 +358,9 @@ private struct TVPlayerSessionView: View {
                 // No crop-to-fill on TV: the panel is always a standard 16:9,
                 // and non-16:9 films letterbox as the filmmaker intended.
                 HStack(spacing: 12) {
+                    if !model.audioTracks.isEmpty {
+                        dialogueBoostPill
+                    }
                     if model.hasMultipleAudioTracks {
                         consolePill("Audio") { panel = .audio }
                     }
@@ -380,6 +383,24 @@ private struct TVPlayerSessionView: View {
             try? await Task.sleep(for: .milliseconds(80))
             playPauseFocused = true
         }
+    }
+
+    /// The moon pill from the Android console: night-mode dialogue boost.
+    /// While it is on the pill wears the accent so its state reads from the
+    /// couch even when focus is elsewhere.
+    private var dialogueBoostPill: some View {
+        let active = model.dialogueBoost
+        return Button {
+            model.dialogueBoost.toggle()
+            interactionTick += 1
+        } label: {
+            Image(systemName: "moon.fill")
+        }
+        .buttonStyle(active
+            ? TVPillButtonStyle(fill: accent.tint, idleFill: accent.tint.opacity(0.28), idleText: accent.tint)
+            : TVPillButtonStyle())
+        .accessibilityLabel("Dialogue boost")
+        .accessibilityAddTraits(active ? .isSelected : [])
     }
 
     private func consolePill(_ title: String, action: @escaping () -> Void) -> some View {

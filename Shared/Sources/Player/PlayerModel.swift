@@ -11,6 +11,7 @@ struct MPVPlayerView: UIViewControllerRepresentable {
         let controller = MPVPlayerController()
         controller.playURL = url
         controller.startSeconds = startSeconds
+        controller.dialogueBoost = model.dialogueBoost
         controller.onStateChange = { [weak model] state in
             model?.apply(state)
         }
@@ -48,8 +49,24 @@ final class PlayerModel {
     var subtitleCues: [SubtitleCue] = []
     /// Display aspect of the picture, nil until the file loads.
     var videoAspect: Double?
+    /// Night-mode dialogue boost (see MPVPlayerController.dialogueBoostFilter).
+    /// Persisted like the Android app's dialogue_boost preference: whoever
+    /// turns it on for a late film wants it on for the next one too.
+    var dialogueBoost: Bool {
+        didSet {
+            defaults.set(dialogueBoost, forKey: Self.dialogueBoostKey)
+            controller?.setDialogueBoost(dialogueBoost)
+        }
+    }
+    static let dialogueBoostKey = "player.dialogueBoost"
+    private let defaults: UserDefaults
 
     weak var controller: MPVPlayerController?
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        dialogueBoost = defaults.bool(forKey: Self.dialogueBoostKey)
+    }
 
     func apply(_ state: MPVPlayerController.ObservedState) {
         timeSeconds = state.timeSeconds

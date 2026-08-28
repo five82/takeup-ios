@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import Takeup
 
@@ -35,6 +36,21 @@ struct PlayerModelTests {
             makeTrack(id: 2, type: "sub", lang: "eng", codec: "hdmv_pgs_subtitle", selected: true),
         ])
         #expect(model.selectedSubtitleId == nil)
+    }
+
+    @Test func dialogueBoostPersistsAcrossSessions() {
+        let suite = "PlayerModelTests.dialogueBoost"
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.removePersistentDomain(forName: suite)
+
+        let first = PlayerModel(defaults: defaults)
+        #expect(!first.dialogueBoost)
+        first.dialogueBoost = true
+
+        let second = PlayerModel(defaults: defaults)
+        #expect(second.dialogueBoost)
+        second.dialogueBoost = false
+        #expect(!PlayerModel(defaults: defaults).dialogueBoost)
     }
 
     @Test func trackUidDisambiguatesTypes() {

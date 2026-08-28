@@ -1,6 +1,8 @@
 // swift-tools-version:5.5
-// Vendored MPVKit 0.41.0 with a locally built, live-resize-patched Libmpv.
-// All other binaries come from the official MPVKit release artifacts.
+// Vendored MPVKit 0.41.0 with a locally built, live-resize-patched Libmpv and
+// a Libavfilter rebuilt with the acompressor/alimiter filters (see
+// scripts/build-libmpv.sh). All other binaries come from the official MPVKit
+// release artifacts.
 import PackageDescription
 
 let package = Package(
@@ -164,8 +166,7 @@ let package = Package(
         ),
         .binaryTarget(
             name: "Libavfilter",
-            url: "https://github.com/mpvkit/MPVKit/releases/download/0.41.0/Libavfilter.xcframework.zip",
-            checksum: "965d1271c37181b1fe23d34d0c7c1cb7626a080d5925d3bdb1d1f84afd7b3d7d"
+            path: "Frameworks/Libavfilter.xcframework"
         ),
         .binaryTarget(
             name: "Libavutil",

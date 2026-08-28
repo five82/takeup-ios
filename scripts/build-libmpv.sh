@@ -27,6 +27,15 @@ fi
 echo "==> Applying local patches"
 cp "$REPO_ROOT"/patches/mpvkit/*.patch "$WORK_DIR/Sources/BuildScripts/patch/libmpv/"
 
+# The FFmpeg filter allowlist lives in the build script itself, not in a
+# patchable source tree, so it is extended in place (idempotently).
+BUILD_MAIN="$WORK_DIR/Sources/BuildScripts/XCFrameworkBuild/main.swift"
+if ! grep -q 'enable-filter=acompressor' "$BUILD_MAIN"; then
+    sed -i '' 's|"--enable-filter=vflip", "--enable-filter=volume",|"--enable-filter=vflip", "--enable-filter=volume",\
+        "--enable-filter=acompressor", "--enable-filter=alimiter",|' "$BUILD_MAIN"
+    grep -q 'enable-filter=acompressor' "$BUILD_MAIN" || { echo "error: could not extend the FFmpeg filter list in $BUILD_MAIN" >&2; exit 1; }
+fi
+
 # tvOS slices serve the TakeupTV target. The live-resize patch compiles into
 # them but is inert on a fixed-size screen (it only polls drawableSize for
 # changes); one xcframework keeps both apps on the same mpv/ffmpeg build.
@@ -35,14 +44,22 @@ cd "$WORK_DIR"
 export PATH="/opt/homebrew/bin:$PATH"
 make build platform=ios,isimulator,tvos,tvsimulator
 
-echo "==> Installing Libmpv.xcframework into $DEST"
-XCFRAMEWORK=$(find "$WORK_DIR/dist" -name "Libmpv.xcframework" -type d | head -1)
-if [ -z "$XCFRAMEWORK" ]; then
-    echo "error: Libmpv.xcframework not found under $WORK_DIR/dist" >&2
-    exit 1
-fi
-rm -rf "$DEST/Libmpv.xcframework"
 mkdir -p "$DEST"
-cp -R "$XCFRAMEWORK" "$DEST/"
+for NAME in Libmpv Libavfilter; do
+    echo "==> Installing $NAME.xcframework into $DEST"
+    # libmpv is left unpacked under dist/release/xcframework; the FFmpeg
+    # frameworks only exist as release zips.
+    XCFRAMEWORK=$(find "$WORK_DIR/dist" -name "$NAME.xcframework" -type d | head -1)
+    ZIP="$WORK_DIR/dist/release/$NAME.xcframework.zip"
+    rm -rf "$DEST/$NAME.xcframework"
+    if [ -n "$XCFRAMEWORK" ]; then
+        cp -R "$XCFRAMEWORK" "$DEST/"
+    elif [ -f "$ZIP" ]; then
+        unzip -q "$ZIP" "$NAME.xcframework/*" -d "$DEST"
+    else
+        echo "error: $NAME.xcframework not found under $WORK_DIR/dist" >&2
+        exit 1
+    fi
+done
 
 echo "==> Done. Rebuild the app (xcodegen generate && xcodebuild ...) to pick it up."

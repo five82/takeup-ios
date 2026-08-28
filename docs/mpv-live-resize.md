@@ -46,8 +46,19 @@ size mid-playback.
   upstream URL.
 
 No binaries are committed: `Vendor/MPVKit/Frameworks/` is gitignored, so a
-fresh clone will not build until the framework is built locally with the
+fresh clone will not build until the frameworks are built locally with the
 steps below.
+
+The same build also produces a second local framework, `Libavfilter`. MPVKit
+configures FFmpeg with `--disable-filters` and a short allowlist that has no
+dynamics processing; the player's night-mode dialogue boost runs
+`acompressor` + `alimiter` through mpv's `lavfi` filter, so the script adds
+both to the allowlist (a `sed` on MPVKit's build script, since the list is
+not in a patchable source tree) and installs the rebuilt `Libavfilter`
+alongside `Libmpv`. `Package.swift` points its `Libavfilter` binary target at
+that local copy; every other FFmpeg library still downloads prebuilt from the
+same MPVKit release, which is safe because the rebuild compiles the identical
+FFmpeg version.
 
 ## Building the framework
 
@@ -58,9 +69,10 @@ xcodegen generate
 ```
 
 The script builds all four slices — iOS, tvOS, and both simulators — into
-the one xcframework. FFmpeg and mpv compile from source (~30-60 minutes);
+each xcframework. FFmpeg and mpv compile from source (~30-60 minutes);
 all other dependencies download prebuilt. When bumping the MPVKit version: update `MPVKIT_TAG` in
 `scripts/build-libmpv.sh`, regenerate `Vendor/MPVKit/Package.swift` from the
-new tag's manifest (keep the local `Libmpv` binaryTarget), re-check that the
-patch still applies, and rebuild. If upstream ever fixes issue #3, drop the
+new tag's manifest (keep the local `Libmpv` and `Libavfilter` binaryTargets), re-check that the
+patch still applies and that the filter-list `sed` in the script still
+matches, and rebuild. If upstream ever fixes issue #3, drop the
 vendored package and point `project.yml` back at the upstream URL.

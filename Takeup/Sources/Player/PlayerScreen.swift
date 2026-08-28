@@ -304,6 +304,9 @@ private struct PlayerSessionView: View {
                 }
 
                 HStack(spacing: 8) {
+                    if !model.audioTracks.isEmpty {
+                        dialogueBoostButton
+                    }
                     if model.hasMultipleAudioTracks {
                         audioButton
                     }
@@ -392,6 +395,26 @@ private struct PlayerSessionView: View {
             guard let chapter = chapters.first(where: { $0.index == index }) else { return }
             model.controller?.seek(to: Double(chapter.startMs ?? 0) / 1000)
         }
+    }
+
+    /// The moon pill from the Android console: night-mode dialogue boost,
+    /// lit with the accent while it is on.
+    private var dialogueBoostButton: some View {
+        let active = model.dialogueBoost
+        return Button {
+            model.dialogueBoost.toggle()
+            interactionTick += 1
+        } label: {
+            Image(systemName: "moon.fill")
+                .font(.system(size: 20, weight: .medium))
+                .foregroundStyle(active ? accent.tint : Color.ink)
+                .frame(width: 44, height: 44)
+                .background(active ? accent.tint.opacity(0.28) : Color.ink.opacity(0.08), in: Circle())
+        }
+        .buttonStyle(.plain)
+        .hoverEffect(.lift)
+        .accessibilityLabel("Dialogue boost")
+        .accessibilityAddTraits(active ? .isSelected : [])
     }
 
     private var audioButton: some View {
