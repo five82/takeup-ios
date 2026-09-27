@@ -18,6 +18,8 @@ final class AppEnvironment {
     let network = NetworkPolicy()
 #endif
 
+    @ObservationIgnored private let clientSession: URLSession?
+
     var serverURLString: String {
         didSet {
             UserDefaults.standard.set(serverURLString, forKey: Self.serverKey)
@@ -25,7 +27,8 @@ final class AppEnvironment {
         }
     }
 
-    init() {
+    init(clientSession: URLSession? = nil) {
+        self.clientSession = clientSession
         // No default: the server address lives in Settings, never in the repo.
         serverURLString = UserDefaults.standard.string(forKey: Self.serverKey) ?? ""
         updateNetworkAddress()
@@ -54,10 +57,14 @@ final class AppEnvironment {
     }
 
     var client: LoomClient? {
+        serverURL.map { url in
 #if os(iOS)
-        serverURL.map { LoomClient(baseURL: $0, blocked: network.blockedGate) }
+            var client = LoomClient(baseURL: url, blocked: network.blockedGate)
 #else
-        serverURL.map { LoomClient(baseURL: $0) }
+            var client = LoomClient(baseURL: url)
 #endif
+            if let clientSession { client.session = clientSession }
+            return client
+        }
     }
 }

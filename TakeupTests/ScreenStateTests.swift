@@ -4,6 +4,37 @@ import UIKit
 import Vision
 @testable import Takeup
 
+private final class ScreenURLProtocol: URLProtocol {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        let path = request.url?.path ?? ""
+        let json: String
+        switch path {
+        case "/api/v1/genres":
+            json = #"{"items":[{"id":28,"name":"Action","item_count":12},{"id":878,"name":"Science Fiction","item_count":4}]}"#
+        case "/api/v1/collections":
+            json = #"{"items":[{"slug":"night-films","title":"Night Films","items":[{"id":9301,"kind":"movie","title":"Starlight"}]}]}"#
+        case "/api/v1/search":
+            json = #"{"items":[{"id":9301,"kind":"movie","title":"Starlight","year":2023},{"id":9302,"kind":"episode","title":"A New Moon","series_title":"Moon Stories","season_number":2,"episode_number":3}],"fuzzy":true}"#
+        case "/api/v1/items":
+            json = #"{"items":[{"id":9301,"kind":"movie","title":"Starlight","year":2023}]}"#
+        case "/api/v1/libraries":
+            json = #"{"items":[]}"#
+        case "/api/v1/items/9301/images/poster/options":
+            json = #"{"items":[{"provider":"tmdb","provider_path":"/small","thumbnail_url":"://invalid","width":500,"height":750,"selected":false,"language":"en","vote_average":6.5},{"provider":"tmdb","provider_path":"/large","thumbnail_url":"://invalid","width":1000,"height":1500,"selected":true,"language":"fr","vote_average":8.2}]}"#
+        default:
+            json = #"{"items":[]}"#
+        }
+        client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data(json.utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
+}
+
 /// Mount screens in a real window so SwiftUI evaluates their state-dependent
 /// bodies and tasks, rather than merely constructing an inert View value.
 @MainActor
@@ -121,6 +152,76 @@ private func recognizedText(in window: UIWindow) throws -> [(text: String, bound
             let text = try recognizedText(in: window).map(\.text).joined(separator: " ")
             for phrase in expected {
                 #expect(text.localizedCaseInsensitiveContains(phrase), "Expected \(phrase) in rendered detail: \(text)")
+            }
+            window.isHidden = true
+        }
+    }
+
+    @Test func savedAndFailedDownloadsShowActionsAndOfflineSearchFindsTitles() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let movie = try loomDecoder().decode(Item.self, from: Data(#"{"id":9201,"kind":"movie","title":"Moonlit Harbor","year":2024,"media":{"id":1,"size":1048576}}"#.utf8))
+        let episode = try loomDecoder().decode(Item.self, from: Data(#"{"id":9202,"kind":"episode","parent_id":9203,"title":"Harbor Pilot","series_title":"Harbor Stories","season_number":1,"episode_number":1}"#.utf8))
+        let failed = makeItem(id: 9204, kind: "movie", title: "Failed Feature")
+        try JSONEncoder().encode([
+            DownloadEntry(item: movie, relativePath: "9201.media", size: 1_048_576, downloadedAt: .now),
+            DownloadEntry(item: episode, relativePath: "9202.media", size: 25_000, downloadedAt: .now),
+        ]).write(to: directory.appending(path: "catalog.json"))
+        try JSONEncoder().encode([failed.id: failed]).write(to: directory.appending(path: "failed-items.json"))
+        let downloads = DownloadManager(directory: directory, sessionConfiguration: .ephemeral)
+        let environment = AppEnvironment()
+        let saved = environment.serverURLString
+        defer { environment.serverURLString = saved }
+        environment.serverURLString = "http://127.0.0.1:1"
+        environment.network.markUnreachable()
+
+        let workspace = try await mounted(DownloadsView(), environment: environment, downloads: downloads)
+        let workspaceText = try recognizedText(in: workspace).map(\.text).joined(separator: " ")
+        for phrase in ["Moonlit Harbor", "Harbor Pilot", "Failed Feature", "Download failed", "Retry", "Play", "Remove", "Remove all"] {
+            #expect(workspaceText.localizedCaseInsensitiveContains(phrase), "Expected \(phrase) in downloads: \(workspaceText)")
+        }
+        workspace.isHidden = true
+
+        let search = try await mounted(SearchView(initialQuery: "harbor"), environment: environment, downloads: downloads)
+        let searchText = try recognizedText(in: search).map(\.text).joined(separator: " ")
+        #expect(searchText.localizedCaseInsensitiveContains("Moonlit Harbor"), "Search results: \(searchText)")
+        #expect(searchText.localizedCaseInsensitiveContains("Harbor Pilot"), "Search results: \(searchText)")
+        search.isHidden = true
+
+        let library = try await mounted(
+            ItemGridView(source: .library(kind: "movies"), title: "Saved movies"),
+            environment: environment, downloads: downloads
+        )
+        let libraryText = try recognizedText(in: library).map(\.text).joined(separator: " ")
+        #expect(libraryText.localizedCaseInsensitiveContains("Moonlit Harbor"), "Offline library: \(libraryText)")
+        library.isHidden = true
+    }
+
+    @Test func populatedServerScreensShowDiscoverySearchAndArtworkChoices() async throws {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [ScreenURLProtocol.self]
+        let environment = AppEnvironment(clientSession: URLSession(configuration: config))
+        let saved = environment.serverURLString
+        defer { environment.serverURLString = saved }
+        // A hostname is treated as reachable on the home network; only the
+        // API session is stubbed, never the network policy's health probe.
+        environment.serverURLString = "http://loom.test:8097"
+        environment.network.markReachable()
+
+        let screens: [(AnyView, [String])] = [
+            (AnyView(GenresView()), ["Action", "Science Fiction"]),
+            (AnyView(CollectionsView()), ["Night Films"]),
+            (AnyView(SearchView(initialQuery: "moon")), ["Closest matches", "Starlight", "A New Moon"]),
+            (AnyView(ItemGridView(source: .library(kind: "movies"), title: "Movies")), ["Starlight"]),
+            (AnyView(ArtworkView(pick: ArtworkPick(itemId: 9301, title: "Starlight", ambienceURL: nil))),
+             ["1000", "FR", "Selected"]),
+        ]
+        for (view, expected) in screens {
+            let window = try await mounted(view, environment: environment)
+            let text = try recognizedText(in: window).map(\.text).joined(separator: " ")
+            for phrase in expected {
+                #expect(text.localizedCaseInsensitiveContains(phrase), "Expected \(phrase) in rendered screen: \(text)")
             }
             window.isHidden = true
         }
