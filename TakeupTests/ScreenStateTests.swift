@@ -63,6 +63,31 @@ private func recognizedText(in window: UIWindow) throws -> [(text: String, bound
         }
     }
 
+    @Test func setupAndSettingsShowActionableOfflineStates() async throws {
+        let environment = AppEnvironment()
+        let saved = environment.serverURLString
+        defer { environment.serverURLString = saved }
+        environment.serverURLString = ""
+        environment.network.markUnreachable()
+
+        let screens: [(AnyView, [String])] = [
+            (AnyView(OnboardingView()), ["Takeup", "a client for Loom", "Connect"]),
+            (AnyView(SettingsView()), ["Settings", "Scanning needs Loom", "Discovered on network"]),
+            (AnyView(ArtworkView(pick: ArtworkPick(itemId: -1100, title: "Missing artwork", ambienceURL: nil))),
+             ["Missing artwork", "Poster", "Reset to default"]),
+            (AnyView(PlayerScreen(item: makeItem(id: -1101, kind: "movie", title: "Unavailable film"))),
+             ["No Loom server configured", "Unavailable film"]),
+        ]
+        for (view, expected) in screens {
+            let window = try await mounted(view, environment: environment)
+            let text = try recognizedText(in: window).map(\.text).joined(separator: " ")
+            for phrase in expected {
+                #expect(text.localizedCaseInsensitiveContains(phrase), "Expected \(phrase) in rendered screen: \(text)")
+            }
+            window.isHidden = true
+        }
+    }
+
     @Test func subtitleAnchorsStayOnOppositeSidesOfThePicture() async throws {
         let cues = SubtitleCue.parse("{\\an8}TOP CUE\nBOTTOM CUE")
         let window = try await mounted(

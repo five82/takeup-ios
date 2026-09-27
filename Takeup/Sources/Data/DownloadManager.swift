@@ -104,9 +104,10 @@ final class DownloadManager {
     private let delegateProxy: SessionDelegate
     private var session: URLSession!
 
-    private init() {
+    init(directory: URL? = nil, sessionConfiguration: URLSessionConfiguration? = nil) {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        directory = support.appending(path: "Downloads", directoryHint: .isDirectory)
+        let directory = directory ?? support.appending(path: "Downloads", directoryHint: .isDirectory)
+        self.directory = directory
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         catalogURL = directory.appending(path: "catalog.json")
         pendingItemsURL = directory.appending(path: "pending-items.json")
@@ -122,9 +123,11 @@ final class DownloadManager {
         libraryKinds = Self.load([Int64: String].self, from: libraryKindsURL) ?? [:]
 
         delegateProxy = SessionDelegate(directory: directory)
-        let configuration = URLSessionConfiguration.background(withIdentifier: "xyz.five82.takeup.downloads")
-        configuration.isDiscretionary = false
-        configuration.sessionSendsLaunchEvents = true
+        let configuration = sessionConfiguration ?? URLSessionConfiguration.background(withIdentifier: "xyz.five82.takeup.downloads")
+        if sessionConfiguration == nil {
+            configuration.isDiscretionary = false
+            configuration.sessionSendsLaunchEvents = true
+        }
         session = URLSession(configuration: configuration, delegate: delegateProxy, delegateQueue: nil)
         delegateProxy.manager = self
 
