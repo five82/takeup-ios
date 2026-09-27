@@ -7,17 +7,19 @@ import Vision
 /// Mount screens in a real window so SwiftUI evaluates their state-dependent
 /// bodies and tasks, rather than merely constructing an inert View value.
 @MainActor
-private func mounted<V: View>(_ view: V, environment: AppEnvironment) async throws -> UIWindow {
+private func mounted<V: View>(
+    _ view: V, environment: AppEnvironment, downloads: DownloadManager = .shared, width: CGFloat = 700
+) async throws -> UIWindow {
     let controller = UIHostingController(rootView:
         NavigationStack { view }
             .environment(environment)
             .environment(environment.network)
-            .environment(DownloadManager.shared)
-            .environment(\.paneWidth, 700)
+            .environment(downloads)
+            .environment(\.paneWidth, width)
     )
     let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
     let window = UIWindow(windowScene: scene)
-    window.frame = CGRect(x: 0, y: 0, width: 834, height: 1210)
+    window.frame = CGRect(x: 0, y: 0, width: max(834, width), height: 1210)
     window.rootViewController = controller
     window.makeKeyAndVisible()
     controller.view.layoutIfNeeded()
@@ -83,6 +85,42 @@ private func recognizedText(in window: UIWindow) throws -> [(text: String, bound
             let text = try recognizedText(in: window).map(\.text).joined(separator: " ")
             for phrase in expected {
                 #expect(text.localizedCaseInsensitiveContains(phrase), "Expected \(phrase) in rendered screen: \(text)")
+            }
+            window.isHidden = true
+        }
+    }
+
+    @Test func downloadedDetailsRemainBrowsableWithoutLoom() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let show = try loomDecoder().decode(Item.self, from: Data(#"{"id":9101,"kind":"show","title":"Offline Series","total_seasons":2,"episode_count":2,"unwatched_count":2,"overview":"A captured series."}"#.utf8))
+        let special = makeItem(id: 9102, kind: "season", parentId: show.id, season: 0, title: "Specials")
+        let season = makeItem(id: 9103, kind: "season", parentId: show.id, season: 1, title: "Season One")
+        let episode = try loomDecoder().decode(Item.self, from: Data(#"{"id":9104,"kind":"episode","parent_id":9103,"season_number":1,"episode_number":1,"title":"The Pilot","overview":"An offline adventure.","duration_ms":3600000,"progress":{"played":false,"resume_position_ms":900000,"duration_ms":3600000}}"#.utf8))
+        let movie = try loomDecoder().decode(Item.self, from: Data(#"{"id":9105,"kind":"movie","title":"Offline Feature","year":2025,"tagline":"A film worth saving.","overview":"A local feature.","duration_ms":7200000,"content_rating":"PG-13","genres":[{"id":28,"name":"Action"}],"credits":[{"person_id":1,"name":"Jane Director","role":"Director"},{"person_id":2,"name":"Alex Actor","role":"Actor","character":"Hero"}],"media":{"id":1,"size":1234567890,"streams":[{"index":0,"kind":"video","codec":"hevc","resolution":"4K","dynamic_range":"HDR10"},{"index":1,"kind":"audio","codec":"eac3","channels":6}],"chapters":[{"index":0},{"index":1}]},"progress":{"played":false,"resume_position_ms":1800000,"duration_ms":7200000}}"#.utf8))
+        let entries = [episode, movie].map { DownloadEntry(item: $0, relativePath: "\($0.id).media", size: 100, downloadedAt: .now) }
+        try JSONEncoder().encode(entries).write(to: directory.appending(path: "catalog.json"))
+        try JSONEncoder().encode([show.id: show, special.id: special, season.id: season]).write(to: directory.appending(path: "ancestors.json"))
+        let downloads = DownloadManager(directory: directory, sessionConfiguration: .ephemeral)
+        let environment = AppEnvironment()
+        let saved = environment.serverURLString
+        defer { environment.serverURLString = saved }
+        environment.serverURLString = "http://127.0.0.1:1"
+        environment.network.markUnreachable()
+
+        for (id, width, expected) in [
+            (show.id, CGFloat(700), ["Offline Series", "Season One", "The Pilot", "Resume"]),
+            (movie.id, CGFloat(1000), ["Offline Feature", "Downloaded", "Jane Director", "Action"]),
+            (episode.id, CGFloat(700), ["The Pilot", "Resume", "Downloaded", "An offline adventure"]),
+        ] {
+            let window = try await mounted(
+                ItemDetailView(itemId: id, fallbackTitle: "Missing"),
+                environment: environment, downloads: downloads, width: width
+            )
+            let text = try recognizedText(in: window).map(\.text).joined(separator: " ")
+            for phrase in expected {
+                #expect(text.localizedCaseInsensitiveContains(phrase), "Expected \(phrase) in rendered detail: \(text)")
             }
             window.isHidden = true
         }

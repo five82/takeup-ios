@@ -1,5 +1,6 @@
 import Testing
 import SwiftUI
+import UIKit
 @testable import Takeup
 
 struct PaletteTests {
@@ -78,6 +79,39 @@ struct BiasCutTests {
         #expect(path.contains(CGPoint(x: 1, y: 1)))
         #expect(!path.contains(CGPoint(x: run - 1, y: rect.height - 1)))
         #expect(path.contains(CGPoint(x: run + 2, y: rect.height - 1)))
+    }
+}
+
+struct WovenExtractorTests {
+    @Test func rejectsInvalidImageData() {
+        #expect(WovenExtractor.extractThreads(from: Data("not an image".utf8)).isEmpty)
+    }
+
+    @Test func picksSaturatedSeparatedThreadsInsteadOfNeutralBackdrop() throws {
+        // Four equal color bands, one near-white: only the three saturated
+        // bands should survive, regardless of their histogram tie order.
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: 64, height: 64))
+        let image = renderer.image { context in
+            for (index, color) in [UIColor.red, .green, .blue, .white].enumerated() {
+                color.setFill()
+                context.fill(CGRect(x: index * 16, y: 0, width: 16, height: 64))
+            }
+        }
+        let threads = WovenExtractor.extractThreads(from: try #require(image.pngData()))
+        #expect(threads.count == 3)
+        let hues = threads.map { $0.hsv.h }
+        for expected in [0.0, 120.0, 240.0] {
+            #expect(hues.contains { hue in
+                let difference = abs(hue - expected)
+                return min(difference, 360 - difference) < 20
+            })
+        }
+        #expect(threads.allSatisfy { $0.hsv.s > 0.8 })
+    }
+
+    @Test func missingURLYieldsNoThreads() async {
+        #expect(await WovenExtractor.threads(for: nil).isEmpty)
+        #expect(await WovenExtractor.cachedThreads(for: nil) == nil)
     }
 }
 
