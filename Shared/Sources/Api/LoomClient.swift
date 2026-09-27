@@ -18,7 +18,9 @@ struct LoomClient {
     /// timeout. Default open so tests and onboarding need not wire it up.
     var blocked: @Sendable () -> Bool = { false }
 
-    private static let session: URLSession = {
+    var session: URLSession = Self.defaultSession
+
+    private static let defaultSession: URLSession = {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 20
         return URLSession(configuration: config)
@@ -195,7 +197,7 @@ struct LoomClient {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
 
-        let (data, response) = try await Self.session.data(for: request)
+        let (data, response) = try await session.data(for: request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard (200..<300).contains(status) else {
             let message = try? Self.decoder.decode(ServerError.self, from: data).error
