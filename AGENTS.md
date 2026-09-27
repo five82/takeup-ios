@@ -6,10 +6,10 @@ This file provides guidance when working with code in this repository.
 
 - Do not create git branches unless explicitly instructed.
 - The `.xcodeproj` is generated and gitignored. Run `xcodegen generate` after adding, removing, or renaming files, or after editing `project.yml`.
-- Build and test on the iOS simulator by default. Use the Xcode beta toolchain (`DEVELOPER_DIR=/Applications/Xcode-beta.app`) so the simulator matches the physical iPad's OS.
+- Build and test on the iOS simulator by default. Use Xcode 27 (`/Applications/Xcode.app`) so the simulator matches the physical iPad's OS.
 - The repo builds two apps: `Takeup` (iPad) and `TakeupTV` (Apple TV), sharing `Shared/`. Changes to `Shared/` must keep both targets building; the tvOS section below covers the TV workflow and its simulator quirks.
 - Unlike the Android emulator, video playback (including MKV via MPVKit) works in the simulator — but only for files the simulator can hardware-decode (H.264/HEVC). AV1 files fall back to software decode and crash the app during frame upload (MoltenVK hits an `xpc_shmem_create` abort in the simulator Metal driver, observed 2026-08 with both 4K and 1080p AV1). Use an H.264/HEVC title for simulator playback checks; AV1 plays fine on the physical iPad (M4 hardware decode). HDR/EDR output, hardware decode, and playback smoothness must be verified on the physical iPad.
-- The app has debug launch arguments for CLI-driven checks: `-autoplay <itemId>` jumps straight into playback, `-tab <home|movies|shorts|tv|collections|genres|search|downloads|settings>` selects a sidebar section, `-detail <itemId>` pushes an item's detail screen (add `-person <name>` to also push the cast-card person search), `-artwork <itemId>` pushes an item's detail and then its artwork picker (add `-artworkKind <poster|backdrop|logo|thumb>` to open on that kind), `-server <address>` sets the Loom address (an unroutable address simulates offline), `-download <itemId>` starts a download, `-popover <chapters|audio|cc>` opens a player console popover shortly after playback starts (pair with `-autoplay`), `-sub <lang>` turns on the first SubRip track matching the language code (or the first at all) once tracks load — the headless way to check cue rendering, `-autochain` plays the next episode automatically when the end-of-playback overlay would offer it, and `-landscape` narrows supported orientations to landscape. The dialogue boost preference is a plain UserDefaults key, so `-player.dialogueBoost 1` starts playback with the boost on (the moon pill lights and mpv's `af` chain is set at init). In practice `-landscape` has not reliably rotated the headless simulator; rotate via Simulator.app instead (see the Simulator section).
+- The app has debug launch arguments for CLI-driven checks: `-autoplay <itemId>` jumps straight into playback, `-tab <home|movies|shorts|tv|collections|genres|search|downloads|settings>` selects a sidebar section, `-detail <itemId>` pushes an item's detail screen (add `-person <name>` to also push the cast-card person search), `-artwork <itemId>` pushes an item's detail and then its artwork picker (add `-artworkKind <poster|backdrop|logo|thumb>` to open on that kind), `-server <address>` sets the Loom address (an unroutable address simulates offline), `-download <itemId>` starts a download, `-popover <chapters|audio|cc>` opens a player console popover shortly after playback starts (pair with `-autoplay`), `-sub <lang>` turns on the first SubRip track matching the language code (or the first at all) once tracks load — the headless way to check cue rendering, `-autochain` plays the next episode automatically when the end-of-playback overlay would offer it, and `-landscape` narrows supported orientations to landscape. The dialogue boost preference is a plain UserDefaults key, so `-player.dialogueBoost 1` starts playback with the boost on (the moon pill lights and mpv's `af` chain is set at init). In practice `-landscape` has not reliably rotated the headless simulator; rotate via DeviceHub instead (see the Simulator section).
 
 ## Project
 
@@ -64,11 +64,9 @@ Known iOS 26 beta quirks:
 
 ## Build
 
-Two toolchains are installed. The stable Xcode builds and runs the older-OS simulators; the beta (`Xcode-beta.app`) is required for the iOS beta simulator and for deploying to the physical iPad, which runs the beta OS.
+Use Xcode 27 in `/Applications/Xcode.app` for simulator and physical-device builds. If a different Xcode is selected, set `DEVELOPER_DIR=/Applications/Xcode.app`.
 
 ```bash
-export DEVELOPER_DIR=/Applications/Xcode-beta.app
-
 xcodegen generate   # only needed after file additions/removals or project.yml edits
 
 xcodebuild -project Takeup.xcodeproj -scheme Takeup \
@@ -88,7 +86,7 @@ Add focused tests alongside new pure logic; UI and playback behavior are still v
 
 ## Simulator
 
-The `iPad27` simulator (iPad Pro 11-inch M4, iOS beta runtime) is the default target for everything it can run: UI, layout, navigation, API integration against the live Loom server, and playback smoke checks.
+The `iPad27` simulator (iPad Pro 11-inch M4, iOS 27 runtime) is the default target for everything it can run: UI, layout, navigation, API integration against the live Loom server, and playback smoke checks.
 
 It is a hand-made `simctl` device rather than one Xcode ships, so a runtime update can take it with it (observed missing 2026-08). Recreate it by name - every command here addresses it as `iPad27`, and the stock iOS 27.0 iPads are unnamed M5 models (same 834x1210 geometry, so idb coordinates would carry over, but nothing else here would find them):
 
@@ -98,10 +96,9 @@ xcrun simctl create iPad27 \
   com.apple.CoreSimulator.SimRuntime.iOS-27-0
 ```
 
-Xcode's beta removed the standalone Simulator app (its replacement is DeviceHub), so CLI-driven simulators run headless. Drive them with `simctl` and verify with screenshots:
+Xcode 27 has no standalone Simulator app (its replacement is DeviceHub), so CLI-driven simulators run headless. Drive them with `simctl` and verify with screenshots:
 
 ```bash
-export DEVELOPER_DIR=/Applications/Xcode-beta.app
 xcrun simctl boot iPad27
 xcrun simctl install iPad27 DerivedData27/Build/Products/Debug-iphonesimulator/Takeup.app
 xcrun simctl launch iPad27 xyz.five82.takeup -tab genres   # or -autoplay <itemId>
@@ -115,7 +112,7 @@ A launched player keeps playing (audibly) in the headless simulator; terminate t
 stops whatever is running on them. The physical iPad is not a simulator and is
 left alone.
 
-`simctl` has no touch injection. For taps and swipes (scroll checks especially), use idb — companion installed via Homebrew (`facebook/fb/idb-companion`), Python client at `~/.venvs/idb/bin/idb`. It must run with the stable Xcode selected (the beta removed SimulatorKit.framework, which the companion loads for HID), and coordinates are device points (iPad27: 834x1210 portrait). If a swipe errors about a stale companion, `pkill -f idb_companion; rm -rf /tmp/idb` and retry:
+`simctl` has no touch injection. For taps and swipes (scroll checks especially), use idb — companion installed via Homebrew (`facebook/fb/idb-companion`), Python client at `~/.venvs/idb/bin/idb`. Coordinates are device points (iPad27: 834x1210 portrait). If a swipe errors about a stale companion, `pkill -f idb_companion; rm -rf /tmp/idb` and retry:
 
 ```bash
 UDID=$(xcrun simctl list devices | grep iPad27 | grep -o '[0-9A-F-]\{36\}')
@@ -123,24 +120,15 @@ DEVELOPER_DIR=/Applications/Xcode.app ~/.venvs/idb/bin/idb ui tap --udid "$UDID"
 DEVELOPER_DIR=/Applications/Xcode.app ~/.venvs/idb/bin/idb ui swipe --udid "$UDID" --duration 0.8 780 724 260 724
 ```
 
-A simulator freshly booted (or long-running) can fail its first Loom probe and land on the Offline screen while the Mac reaches Loom fine; tap Try again, or do a full `simctl shutdown` + `boot` if it persists (force-quitting Simulator.app does not shut the device down).
+A simulator freshly booted (or long-running) can fail its first Loom probe and land on the Offline screen while the Mac reaches Loom fine; tap Try again, or do a full `simctl shutdown` + `boot` if it persists (closing DeviceHub does not shut the device down).
 
-To check landscape, rotate the booted device with the stable Xcode's Simulator.app (it can attach to the beta simulator; activate it first or the menu click is flaky). Always verify orientation-sensitive changes in both orientations this way — the `-landscape` launch argument has not reliably rotated a headless simulator:
-
-```bash
-open -a /Applications/Xcode.app/Contents/Developer/Applications/Simulator.app \
-  --args -CurrentDeviceUDID "$(xcrun simctl list devices | grep iPad27 | grep -o '[0-9A-F-]\{36\}')"
-osascript -e 'tell application "Simulator" to activate' -e 'delay 1' \
-  -e 'tell application "System Events" to tell process "Simulator" to click menu item "Rotate Right" of menu "Device" of menu bar 1'
-# Rotate Left to return to portrait; screenshot dimensions confirm the orientation took.
-```
+To check landscape, rotate the booted device in DeviceHub and verify orientation-sensitive changes in both orientations. The `-landscape` launch argument has not reliably rotated a headless simulator; screenshot dimensions confirm whether rotation took.
 
 ## tvOS (Apple TV)
 
 The `TakeupTV` scheme builds the Apple TV app from `TakeupTV/` + `Shared/`. The vendored `Libmpv.xcframework` carries tvOS slices — `scripts/build-libmpv.sh` builds `ios,isimulator,tvos,tvsimulator` into the one framework (the live-resize patch compiles into the tvOS slices but is inert on a fixed-size screen).
 
 ```bash
-export DEVELOPER_DIR=/Applications/Xcode-beta.app
 xcodebuild -project Takeup.xcodeproj -scheme TakeupTV \
   -destination 'platform=tvOS Simulator,name=Apple TV 4K (3rd generation)' \
   -derivedDataPath DerivedDataTV build
@@ -150,7 +138,7 @@ xcrun simctl launch <udid> xyz.five82.takeup.tv -server <address> -tab home
 
 Launch arguments carried over from the iPad app: `-server`, `-tab <home|movies|tv|shorts|collections|genres|search|settings>`, `-detail <itemId>`, `-autoplay <itemId>`, `-popover <chapters|audio|cc>` (opens the console panel), `-sub <lang>` (turns on the first matching SubRip track), and `-autochain`. There is no `-download`, `-artwork`, `-person`, or `-landscape`.
 
-Driving the headless tvOS simulator: `simctl` has no remote input, and idb's HID key events no longer arrive (observed 2026-08: CoreSimulator 1155.4 hands the keyboard service to `dtuhidd` for the lifetime of the boot; idb prints a "Keyboard HID is suppressed" warning and the event is silently dropped). Prefer launch arguments for anything they can reach (`-sub` exists precisely so cue rendering needs no remote input). For mid-session presses, use `scripts/tv-driver.sh`: it runs the `TakeupTVDriver` XCUIRemote "test", which launches the app and forwards presses read from `/tmp/takeup-tv-driver/cmd` — injection goes through testmanagerd, so it needs no window focus, steals no keyboard, and exercises the real focus engine. (Do not fall back to AppleScript keystrokes into Simulator.app; they type into whatever window is frontmost and drop most presses.)
+Driving the headless tvOS simulator: `simctl` has no remote input, and idb's HID key events no longer arrive (observed 2026-08: CoreSimulator 1155.4 hands the keyboard service to `dtuhidd` for the lifetime of the boot; idb prints a "Keyboard HID is suppressed" warning and the event is silently dropped). Prefer launch arguments for anything they can reach (`-sub` exists precisely so cue rendering needs no remote input). For mid-session presses, use `scripts/tv-driver.sh`: it runs the `TakeupTVDriver` XCUIRemote "test", which launches the app and forwards presses read from `/tmp/takeup-tv-driver/cmd` — injection goes through testmanagerd, so it needs no window focus, steals no keyboard, and exercises the real focus engine. (Do not fall back to AppleScript keystrokes; they type into whatever window is frontmost and drop most presses.)
 
 ```bash
 ./scripts/tv-driver.sh start -tab home          # builds the driver if needed, launches the app with these args
@@ -165,7 +153,7 @@ Known tvOS quirks (2026-08, tvOS 27.0):
 
 - **A full-screen invisible Button must use a custom ButtonStyle.** The system styles (`.plain` included) paint their white focus/press highlight over the button's label; the player's remote-catcher label is the whole screen, so the video washed out to near-white under it — on the simulator constantly (misread for a while as a Metal-driver artifact) and on the hardware whenever the highlight engaged. A custom style that returns the bare label draws nothing and stays focusable (`TVInvisibleButtonStyle` in TVPlayerScreen.swift). H.264/HEVC playback checks in the tvOS simulator are trustworthy, same as the iOS simulator; assume the iOS simulator's AV1 software-decode crash applies here too.
 - `CAMetalLayer.wantsExtendedDynamicRangeContent` does not exist on tvOS (the override in `MetalLayer.swift` is `#if os(iOS)`); the Apple TV negotiates HDR at the system level. HDR10-on-HEVC passthrough is verified working on the box (2026-08); HDR10-on-AV1 waits for the AV1-capable Apple TV.
-- The sidebar (`.sidebarAdaptable` TabView) starts expanded with focus in it; send a right-arrow keystroke (via the Simulator.app/AppleScript flow above) before screenshots that need the content unobscured.
+- The sidebar (`.sidebarAdaptable` TabView) starts expanded with focus in it; send `right` through `scripts/tv-driver.sh` before screenshots that need the content unobscured.
 
 **4K AV1 is gated, not hidden.** The house Apple TV has no AV1 hardware decoder and dav1d software decode cannot sustain 4K, so `PlaybackGate` (in `Shared/`, unit-tested) refuses playback of AV1 above 1080p when `VTIsHardwareDecodeSupported(AV1)` is false: the detail screen disables Play with the reason, and the player surfaces the same reason for direct entries. 1080p AV1 plays (software decode holds up, verified on the A12). The check is a live capability query, so the gate lifts itself on the next-generation Apple TV with no code change. Titles stay visible in the library either way.
 
@@ -176,7 +164,6 @@ The physical Apple TV ("Living Room Apple TV") is an Apple TV 4K 2nd generation 
 HDR/EDR output, hardware decode behavior, playback smoothness, and the close-player lifecycle are verified on the physical iPad ("Kenneth's iPad"). Say so when you use it. Signing is pinned in `project.yml` (`DEVELOPMENT_TEAM`), so CLI builds are installable:
 
 ```bash
-export DEVELOPER_DIR=/Applications/Xcode-beta.app
 xcodebuild -project Takeup.xcodeproj -scheme Takeup \
   -destination 'platform=iOS,name=Kenneth’s iPad' \
   -derivedDataPath DerivedDataDevice -allowProvisioningUpdates build

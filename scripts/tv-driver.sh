@@ -12,7 +12,7 @@
 set -euo pipefail
 
 DIR=/tmp/takeup-tv-driver
-export DEVELOPER_DIR=${DEVELOPER_DIR:-/Applications/Xcode-beta.app}
+export DEVELOPER_DIR=${DEVELOPER_DIR:-/Applications/Xcode.app}
 DEST='platform=tvOS Simulator,name=Apple TV 4K (3rd generation)'
 cd "$(dirname "$0")/.."
 

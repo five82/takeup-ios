@@ -7,11 +7,6 @@
 
 set -euo pipefail
 
-# The beta toolchain owns the iOS beta runtime the iPad27 simulator uses.
-if [ -z "${DEVELOPER_DIR:-}" ] && [ -d /Applications/Xcode-beta.app ]; then
-    export DEVELOPER_DIR=/Applications/Xcode-beta.app
-fi
-
 booted=$(xcrun simctl list devices | grep "(Booted)" || true)
 
 if [ -z "$booted" ]; then
